@@ -1,0 +1,60 @@
+{
+  "marketIntent": {
+    "assets": {
+      "base": {
+        "symbol": "MKT",
+        "decimals": 9
+      },
+      "quote": {
+        "symbol": "USDC",
+        "decimals": 6
+      }
+    },
+    "supply": {
+      "totalBase": "1000000000"
+    },
+    "pricing": {
+      "startFdv": "200000",
+      "migrationFdv": "2000000"
+    },
+    "targets": {
+      "quoteToMigration": "150000",
+      "baseDistributionPct": "25"
+    },
+    "preferences": {
+      "launchProfile": "balanced",
+      "sniperResistance": "high"
+    },
+    "solver": {
+      "maxSegments": 3
+    }
+  },
+  "objectiveWeights": {
+    "quoteError": "0.35",
+    "distributionError": "0.35",
+    "migrationPriceError": "0.1",
+    "earlyPriceImpact": "0",
+    "attackProfitability": "0",
+    "complexity": "0.2"
+  },
+  "simulation": {
+    "fees": {
+      "base": {
+        "kind": "fixed",
+        "feeBps": "25"
+      },
+      "collectFeeMode": "quote",
+      "creatorTradingFeeShareBps": "2500"
+    },
+    "migration": {
+      "destination": "damm-v2"
+    },
+    "supplyMode": "fixed",
+    "clock": {
+      "slot": "0",
+      "timestampSeconds": "0"
+    },
+    "activationPoint": "0",
+    "activationType": "slot"
+  }
+}

@@ -66,6 +66,36 @@ describe("validateMarketIntent", () => {
     );
   });
 
+  it("rejects equal or descending start-to-migration prices after resolving alternatives", () => {
+    const equalFdv = validateMarketIntent({
+      ...demoIntent,
+      pricing: { startFdv: "200000", migrationFdv: "200000" },
+    });
+    const descendingPrices = validateMarketIntent({
+      ...demoIntent,
+      pricing: { startFdv: "200000", migrationPrice: "0.0001" },
+    });
+
+    expect(equalFdv.status).toBe("invalid");
+    if (equalFdv.status === "invalid") {
+      expect(equalFdv.issues).toContainEqual(
+        expect.objectContaining({
+          path: "$.pricing.migrationFdv",
+          code: "migration_not_above_start",
+        }),
+      );
+    }
+    expect(descendingPrices.status).toBe("invalid");
+    if (descendingPrices.status === "invalid") {
+      expect(descendingPrices.issues).toContainEqual(
+        expect.objectContaining({
+          path: "$.pricing.migrationPrice",
+          code: "migration_not_above_start",
+        }),
+      );
+    }
+  });
+
   it("rejects missing price alternatives and non-decimal number inputs", () => {
     const missing = validateMarketIntent({ ...demoIntent, pricing: {} });
     const numberInput = validateMarketIntent({

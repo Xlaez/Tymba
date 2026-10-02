@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runDemoSimulation } from "../../examples/demo-market.js";
+import { compileDocument, formatCompileReport } from "./compile.js";
 import { createDemoInspectionDocument, formatDemoInspection } from "./inspect.js";
 import { serializeCliJson } from "./output.js";
 import { createSimulationDocument, formatSimulationReport } from "./simulate.js";
@@ -13,6 +14,8 @@ type ValidateArguments = Readonly<{
   migrationPath?: string;
   json: boolean;
 }>;
+
+type CompileArguments = Readonly<{ requestPath: string; json: boolean }>;
 
 type OutputOptions = Readonly<{ json: boolean; advanced: boolean }>;
 
@@ -73,6 +76,30 @@ export async function runCli(args: readonly string[]): Promise<number> {
       return 2;
     }
   }
+  if (command === "compile") {
+    if (showHelp(commandArgs)) {
+      process.stdout.write(`${usage()}\n`);
+      return 0;
+    }
+    let parsed: CompileArguments;
+    try {
+      parsed = parseCompileArguments(commandArgs);
+    } catch (error) {
+      process.stderr.write(
+        `${error instanceof Error ? error.message : String(error)}\n${usage()}\n`,
+      );
+      return 2;
+    }
+    try {
+      const report = compileDocument(await readJson(parsed.requestPath));
+      const output = parsed.json ? serializeCliJson(report) : formatCompileReport(report);
+      process.stdout.write(`${output}\n`);
+      return 1;
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 2;
+    }
+  }
   if (command !== "validate") {
     process.stderr.write(`Unsupported command: ${command}\n${usage()}\n`);
     return 2;
@@ -99,6 +126,20 @@ export async function runCli(args: readonly string[]): Promise<number> {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
+}
+
+function parseCompileArguments(args: readonly string[]): CompileArguments {
+  let requestPath: string | undefined;
+  let json = false;
+  for (const argument of args) {
+    if (argument === "--json" && !json) json = true;
+    else if (argument.startsWith("-"))
+      throw new TypeError(`Unknown or repeated compile option: ${argument}`);
+    else if (requestPath === undefined) requestPath = argument;
+    else throw new TypeError("Only one compile-request JSON path is supported");
+  }
+  if (!requestPath) throw new TypeError("A compile-request JSON file path is required");
+  return { requestPath, json };
 }
 
 function parseValidateArguments(args: readonly string[]): ValidateArguments {
@@ -170,6 +211,7 @@ async function readJson(path: string): Promise<unknown> {
 function usage(): string {
   return [
     "Usage:",
+    "  pnpm tymba compile <compile-request.json> [--json]",
     "  pnpm tymba validate <market-intent.json> [--fees <fees.json>] [--migration <migration.json>] [--json]",
     "  pnpm tymba simulate [--json] [--advanced]",
     "  pnpm tymba inspect [--json] [--advanced]",

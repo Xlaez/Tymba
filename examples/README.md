@@ -13,6 +13,15 @@ pnpm tymba validate examples/demo-market.json --json
 
 The optional configuration files represent protocol-sized integer fields as decimal strings at the JSON boundary. Add `--json` for a machine-readable validation report. Validation checks the domain contract; it does not establish Meteora SDK parity or devnet support.
 
+`compile` accepts a request envelope with the canonical `marketIntent`, explicit objective weights, and explicit deterministic simulation configuration. Run the tracked request with:
+
+```sh
+pnpm tymba compile examples/demo-compile-request.json
+pnpm tymba compile examples/demo-compile-request.json --json
+```
+
+At this phase the command returns simulator-checked, pinned-SDK curve-validated drafts but remains `blocked` and exits non-zero: their protocol `verificationStatus` remains `unverified` because complete DBC configuration and token-supply validation are not implemented. It emits no deployable candidate or protocol configuration. Passing only `examples/demo-market.json` also fails clearly because solver weights and simulation settings are not inferred.
+
 Run the fixed, deterministic simulator fixture with:
 
 ```sh
@@ -33,4 +42,4 @@ pnpm tymba inspect --json
 
 The inspection uses exact per-segment amount rounding for totals and human-unit formatting for display. It reports the same illustrative, unverified migration boundary as the simulator.
 
-All three commands provide JSON output. For `simulate` and `inspect`, `--advanced` adds an `advanced` object containing raw integer protocol values and detailed simulator state; the normal economic summary remains separate. Decimal economic values are serialized as strings.
+All CLI commands provide JSON output with `--json`. For `simulate` and `inspect`, `--advanced` adds an `advanced` object containing raw integer protocol values and detailed simulator state; the normal economic summary remains separate. Decimal economic values are serialized as strings.

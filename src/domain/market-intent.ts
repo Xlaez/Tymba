@@ -1,11 +1,11 @@
 import { Decimal } from "decimal.js";
 import { parseCurrencyAmount } from "./currency-amount.js";
 import { MAX_PUBLIC_BUILDER_SEGMENTS } from "./curve.js";
+import { DEFAULT_SOLVER_SEGMENT_COUNT } from "./solver-constants.js";
 import type { ValidationStatus } from "./status.js";
 
 const ExactDecimal = Decimal.clone({ precision: 512, toExpNeg: -100000, toExpPos: 100000 });
 const MAX_DECIMAL_LENGTH = 256;
-const DEFAULT_MAX_SEGMENTS = 3;
 const MAX_SEGMENTS = MAX_PUBLIC_BUILDER_SEGMENTS;
 const MAX_LOCK_DURATION_SECONDS = 63_072_000n;
 
@@ -186,6 +186,20 @@ export function validateMarketIntent(input: unknown): MarketIntentValidationResu
       addIssue(issues, `$.pricing.${name}`, "must_be_positive", "Value must be greater than zero");
     }
   }
+  const resolvedStartPrice = resolvePairPrice(startPrice, startFdv, totalBase);
+  const resolvedMigrationPrice = resolvePairPrice(migrationPrice, migrationFdv, totalBase);
+  if (
+    resolvedStartPrice?.gt(0) &&
+    resolvedMigrationPrice?.gt(0) &&
+    resolvedMigrationPrice.lte(resolvedStartPrice)
+  ) {
+    addIssue(
+      issues,
+      migrationPrice ? "$.pricing.migrationPrice" : "$.pricing.migrationFdv",
+      "migration_not_above_start",
+      "Migration price must be greater than start price for an increasing curve",
+    );
+  }
 
   const targets = requiredRecord(root, "targets", "$.targets", issues);
   if (targets) checkKeys(targets, ["quoteToMigration", "baseDistributionPct"], "$.targets", issues);
@@ -247,7 +261,9 @@ export function validateMarketIntent(input: unknown): MarketIntentValidationResu
   const solverRecord = optionalRecord(root, "solver", "$.solver", issues);
   if (solverRecord) checkKeys(solverRecord, ["maxSegments"], "$.solver", issues);
   const maxSegments =
-    solverRecord?.maxSegments === undefined ? DEFAULT_MAX_SEGMENTS : solverRecord.maxSegments;
+    solverRecord?.maxSegments === undefined
+      ? DEFAULT_SOLVER_SEGMENT_COUNT
+      : solverRecord.maxSegments;
   if (
     typeof maxSegments !== "number" ||
     !Number.isInteger(maxSegments) ||
@@ -565,6 +581,16 @@ function derivePair(
   if (!price) throw new Error("Price or FDV must be provided");
   const resolvedPrice = new ExactDecimal(price.text);
   return { price: resolvedPrice, fdv: resolvedPrice.mul(totalBase) };
+}
+
+function resolvePairPrice(
+  price: DecimalEntry | undefined,
+  fdv: DecimalEntry | undefined,
+  totalBase: DecimalEntry | undefined,
+): Decimal | undefined {
+  if (price) return price.value;
+  if (!fdv || !totalBase || !totalBase.value.gt(0)) return undefined;
+  return fdv.value.div(totalBase.value);
 }
 
 function enumAt<const T extends readonly string[]>(

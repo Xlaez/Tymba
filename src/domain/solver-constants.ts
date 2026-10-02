@@ -1,0 +1,1 @@
+export const DEFAULT_SOLVER_SEGMENT_COUNT = 3;

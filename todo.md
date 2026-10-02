@@ -170,37 +170,37 @@ Goal: convert a validated economic intent into one or more legal DBC candidates.
 
 ### Constraint pipeline
 
-- [ ] Normalize prices, FDV, supply, quote targets, percentages, fees, and migration settings.
-- [ ] Derive exact values when start or migration price can be calculated directly.
-- [ ] Validate incompatible or incomplete constraint combinations.
-- [ ] Return clear `satisfied`, `partial`, or `unsatisfied` results.
-- [ ] Explain conflicts in economic language and suggest measurable alternatives.
+- [x] Normalize prices, FDV, supply, quote targets, percentages, fees, and migration settings.
+- [x] Derive exact values when start or migration price can be calculated directly.
+- [x] Validate incompatible or incomplete constraint combinations.
+- [x] Return clear `satisfied`, `partial`, or `unsatisfied` results.
+- [x] Explain conflicts in economic language and suggest measurable alternatives.
 
 ### Candidate generation and optimization
 
-- [ ] Support a fixed initial segment count, starting with three segments.
-- [ ] Generate increasing candidate price breakpoints.
-- [ ] Solve segment liquidity analytically where possible.
-- [ ] Optimize remaining variables with a deterministic strategy.
-- [ ] Enforce positive liquidity, segment-count limits, supply rules, and all protocol constraints.
-- [ ] Define and implement the objective function for quote, distribution, migration price, price impact, attack exposure, and complexity.
-- [ ] Rank and return the best one to three valid candidates.
-- [ ] Include explanations for why each candidate's liquidity distribution was chosen.
+- [x] Support a fixed initial segment count, starting with three segments.
+- [x] Generate increasing candidate price breakpoints.
+- [x] Solve segment liquidity analytically where possible.
+- [x] Optimize remaining variables with a deterministic strategy.
+- [x] Enforce local candidate guardrails: positive u128 liquidity, segment limits, curve shape/price encoding, positive u64 supply and migration threshold, curve capacity, and distributed-base not exceeding supply. Full Meteora config and SDK supply validation remain separate gates below.
+- [x] Define and implement the six-term objective with explicit normalized weights and metrics, deterministic error normalization, and required evidence for positively weighted impact/attack terms (`src/domain/solver-objective.ts`; `spec.md` §7.5).
+- [x] Rank up to three SDK-validated candidates by ascending objective score with a deterministic candidate-id tie-break; exclude unverified candidates (`src/domain/solver-candidate-ranking.ts`).
+- [x] Explain each segment's chosen liquidity with its price band, quote/base amounts and shares, plus the active quote/distribution objective weights; keep explanations evidence-based and do not claim global optimality (`src/domain/solver-explanations.ts`).
 
 ### Solver tests
 
-- [ ] Add satisfiable fixtures for start price, migration price, quote target, and distribution target.
-- [ ] Add unsatisfiable fixtures with clear conflict explanations.
-- [ ] Add boundary tests for minimum/maximum segments and liquidity.
-- [ ] Verify every solver result by running it through the deterministic simulator.
-- [ ] Verify generated candidates against the Meteora SDK validator or builder.
-- [ ] Record solver inputs, version, seed/configuration, objective weights, and output metrics.
+- [x] Add satisfiable fixtures for start/migration prices and independent quote/distribution targets (`src/domain/inverse-curve-solver.test.ts`; 6 focused tests and TypeScript check pass).
+- [x] Add unsatisfiable fixtures with economic conflict explanations and measurable alternatives (`src/domain/inverse-curve-solver.test.ts`; insufficient quote for both two- and three-segment curves, plus missing-measurement rejection).
+- [x] Add boundary tests for minimum/maximum segment counts (1/16) and liquidity (1/u128 max), with over-limit rejection (`src/domain/solver-candidate-validation.test.ts`; full `pnpm check` passes, 169 tests).
+- [x] Verify each locally valid solver candidate with the deterministic simulator, compare quote/base/price outputs, and source candidate economics from simulator results (`src/domain/solver-deterministic-verification.ts`; `pnpm check` passes with 169 tests and build succeeds).
+- [x] Verify generated candidate curves with the pinned Meteora SDK `validateCurve` and record version/count evidence; reject SDK failures while retaining `unverified` status until full config validation (`src/domain/solver-sdk-validation.ts`; `pnpm check` passes with 171 tests and build succeeds).
+- [x] Record JSON-safe normalized inputs, engine/algorithm/SDK versions, explicit configuration/objective weights, no-randomness seed policy, evidence, issues, and output metrics (`src/domain/solver-run-record.ts`; repeated runs produce identical JSON; full `pnpm check` passes with 172 tests and build succeeds).
 
 ### Phase gate
 
-- [ ] `tymba compile example.json` returns a legal, verified candidate or a clear failure state.
-- [ ] Solver output metrics are reproduced by the deterministic simulator.
-- [ ] The solver never emits a configuration that bypasses protocol validation.
+- [x] `tymba compile example.json` returns a legal, verified candidate or a clear failure state. The current demo request returns a structured `blocked` state with reason `full_configuration_validation_pending`, no deployable candidate, and non-zero exit (`src/cli/compile.ts`, `examples/demo-compile-request.json`).
+- [x] Solver output metrics are reproduced by the deterministic simulator; each candidate's quote, base distribution, BPS, and terminal price are compared before output and metrics come from the simulation (`src/domain/solver-deterministic-verification.ts`; compile CLI tests).
+- [x] No unvalidated deployable configuration is emitted: curve drafts remain `unverified`, and CLI `deployableCandidates` is always empty until full SDK config/supply validation exists (`src/cli/compile.test.ts`).
 
 ## Phase 5 — Add stochastic simulation and adversarial attacks
 

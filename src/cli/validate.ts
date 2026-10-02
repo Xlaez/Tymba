@@ -32,6 +32,13 @@ const CONFIG_BIGINT_FIELDS = new Set([
   "vestingBps",
   "lockDurationSeconds",
   "compoundingFeeBps",
+  "slot",
+  "timestampSeconds",
+  "activationPoint",
+  "lastUpdateTimestamp",
+  "sqrtPriceReferenceQ64x64",
+  "volatilityAccumulator",
+  "volatilityReference",
 ]);
 
 export type CliValidationIssue = Readonly<{
@@ -157,7 +164,7 @@ function validateOptionalConfiguration(
     : { status: "invalid", issues: mapConfigurationIssues(kind, result.issues) };
 }
 
-function convertConfigBigintStrings(value: unknown, path: string): unknown {
+export function convertConfigBigintStrings(value: unknown, path: string): unknown {
   if (Array.isArray(value)) {
     return value.map((element, index) => convertConfigBigintStrings(element, `${path}[${index}]`));
   }

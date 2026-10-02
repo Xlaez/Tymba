@@ -694,7 +694,7 @@ type MarketIntent = {
 };
 ```
 
-Validation requires at least one of `startPrice`/`startFdv` and at least one of `migrationPrice`/`migrationFdv`. If both members of either pair are provided, they must agree given `totalBase`; inconsistent pairs are rejected. The missing representation is derived during normalization. Amounts must be exactly representable at the specified asset decimals. Percentages are checked as exact basis-point values.
+Validation requires at least one of `startPrice`/`startFdv` and at least one of `migrationPrice`/`migrationFdv`. If both members of either pair are provided, they must agree given `totalBase`; inconsistent pairs are rejected. The missing representation is derived during normalization. The resolved migration price must be strictly greater than the resolved start price because the DBC curve progresses upward; equal or descending prices are incompatible constraints. Amounts must be exactly representable at the specified asset decimals. Percentages are checked as exact basis-point values.
 
 Intent validation returns `status: "valid"` with both the accepted intent and normalized values, or `status: "invalid"` with path-specific issues. Invalid input is never normalized or passed to the solver. These shared validation, solver, and verification statuses are defined in §20.5.
 
@@ -729,7 +729,23 @@ type NormalizedMarketIntent = {
 };
 ```
 
+The solver combines this normalized economic intent with optional typed fee and migration configuration inputs:
+
+```ts
+type NormalizedSolverInput = {
+  market: NormalizedMarketIntent;
+  fees?: FeeConfiguration;
+  migrationConfiguration?: MigrationConfiguration;
+};
+```
+
+Fee and migration configuration inputs use the domain types and are validated before they are included. If either is omitted, normalization preserves that omission; it must not silently synthesize a fee or allocation policy. The `MarketIntent.migration` percentages are economic allocation intent, not a six-bucket DAMM v2 allocation, and must not be mapped automatically while that mapping remains unresolved. JSON adapters represent protocol-sized integer configuration values as decimal strings before converting them to domain `bigint` values.
+
 The MVP solver accepts 1–16 segments, corresponding to at most 16 public-builder curve entries and 17 sqrt-price boundaries including the start. The normalized default is three segments when no maximum is supplied. Do not use JavaScript `number` or `CurrencyAmount` for human economic prices or FDV.
+
+Initial candidate generation uses a fixed three-segment count. When `maxSegments` is one or two, the initial count is reduced to that limit; otherwise it remains three. The initial search does not increase the segment count automatically.
+
+The initial price grid is linearly spaced in human price between the exact normalized start and migration prices. Interior boundaries use 512-significant-digit decimal arithmetic with half-up rounding; both endpoints remain unchanged. If an interior point cannot remain strictly distinct at that precision, reject the grid instead of emitting duplicate or descending prices. These economic boundaries are only search seeds; protocol quantization and validation happen before simulation.
 
 ---
 
@@ -762,7 +778,13 @@ type SolverResult = {
 };
 ```
 
-Return up to three candidates in deterministic rank order. Solver statuses are defined in §20.5. An `unsatisfied` result has no deployable candidates; `partial` candidates must explain which constraints remain unmet. `CurrencyAmount` represents token quantities in atomic units, `Decimal` represents human economic prices/FDV and the solver objective, and percentages are integer basis points (`10_000` = 100%). `verificationStatus` describes the strongest evidence actually completed and must not be inferred from a local structural check.
+Return up to three candidates in deterministic rank order, with lower objective score first and candidate id as the tie-breaker. A candidate without at least `sdk-validated` evidence is excluded from the ranked deployable list. Solver statuses are defined in §20.5. An `unsatisfied` result has no deployable candidates; `partial` candidates must explain which constraints remain unmet. `CurrencyAmount` represents token quantities in atomic units, `Decimal` represents human economic prices/FDV and the solver objective, and percentages are integer basis points (`10_000` = 100%). `verificationStatus` describes the strongest evidence actually completed and must not be inferred from a local structural check.
+
+Each candidate includes a per-segment liquidity explanation with the price band, protocol liquidity, locally calculated quote absorption and base distribution, and each segment's share of the curve totals. It identifies whether quote-fit and distribution-fit terms are weighted in the objective. These measured consequences explain the allocation trade-off; they do not claim the optimizer found a global optimum or that unmeasured attack behavior is safe.
+
+The status reducer considers only candidates that already pass hard feasibility and protocol validation. No feasible candidates means `unsatisfied`; any feasible candidate meeting all requested constraints within their defined tolerances means `satisfied`; otherwise, feasible candidates with at least one unmet requested constraint mean `partial`. Verification evidence is reported separately and does not change economic constraint status.
+
+A target conflict warning states the requested economic value, the candidate's measured value, the signed difference, and whether the candidate is above or below target. It also carries a structured alternative that can be applied to the corresponding intent field. Such an alternative is a measurable revised goal, not a promise that a later compile will reproduce the same candidate.
 
 ---
 
@@ -789,6 +811,8 @@ type DbcCurve = {
 Generated curves contain 1–16 contiguous segments, equivalent to 2–17 sqrt-price boundaries. Segment boundaries and liquidity must be positive, each upper boundary must exceed its lower boundary, and each segment must begin at the previous boundary. SDK-specific supported square-root price bounds and full configuration legality remain subject to the pinned SDK validator; structural validation alone does not prove a deployable config.
 
 For user-facing explanations, derive each segment's price range, quote absorption, base distribution, and purpose from this protocol representation and the verified simulator output. Do not store those economic outputs as JavaScript `number` values.
+
+Before simulation, candidate validation checks positive u128 liquidity, the 1–16 public-builder segment limit and user maximum, exact N+1 boundary count, strictly increasing human and Q64.64 prices, positive u64 migration threshold, and that calculated base distribution does not exceed the positive u64 total supply. The quote threshold must not exceed the curve's locally calculated quote capacity. These are necessary local candidate checks, not sufficient Meteora config validation or a substitute for the pinned SDK's fixed/dynamic supply validator; the accounting boundary for supply remains subject to the verification limits in `PROTOCOL_NOTES.md`.
 
 The 20-entry legacy stored-config capacity is not the public-builder entry limit. Any future config-import path must model that legacy capacity separately.
 
@@ -854,6 +878,19 @@ loss =
 + w6 * segment_complexity_penalty
 ```
 
+Objective weights are explicit `Decimal` inputs, must be non-negative, and must sum exactly to one. Tymba does not silently assign weights. A positively weighted term requires its measurement; a zero-weight term may be omitted. The objective score is the weighted sum, and the per-term penalties, weights, contributions, raw measurements, and evidence references are retained for explanation and reproducibility.
+
+Normalize the terms as follows:
+
+- Quote error: `abs(achievedQuoteAtomic - targetQuoteAtomic) / targetQuoteAtomic`; the target must be positive.
+- Distribution error: `abs(achievedBps - targetBps) / 10_000`.
+- Migration-price error: `abs(achievedPrice - targetPrice) / targetPrice`; the target must be positive.
+- Early price-impact penalty: measure a single deterministic buy against the candidate's initial state using an explicitly supplied positive quote-atomic probe and retain the deterministic simulation id. If an impact limit is supplied, use `max(achievedImpactBps - limitBps, 0) / 10_000`; otherwise use `achievedImpactBps / 10_000`. There is no implicit probe-size default.
+- Attack-profitability penalty: `max(attackerProfitQuoteAtomic, 0) / attackerCapitalQuoteAtomic`; capital must be positive. A positively weighted attack term requires an identified modeled attack result. An unrun attack is not treated as zero exposure.
+- Segment-complexity penalty: `segmentCount / maxSegments`.
+
+All arithmetic uses `Decimal` or `bigint`; only bounded segment counts use JavaScript `number`. When a target or metric is unavailable, its weight must be zero until a measurement exists. In particular, the Phase 4 objective may use attack exposure only when a deterministic or adversarial run supplies attacker PnL and capital; stochastic/adversarial scenarios are otherwise implemented in Phase 5.
+
 The solver should return the best valid candidates, not only a single answer.
 
 ---
@@ -883,6 +920,18 @@ Potential numerical approaches:
 - gradient-based methods where differentiable.
 
 For MVP, reliability and determinism are more important than theoretical elegance.
+
+The initial remaining-variable optimizer is deterministic bounded coordinate search over arbitrary-precision decimal values. It visits variables in declaration order and tests the negative then positive direction from the same point, accepts only strict objective improvements, and halves its normalized step fraction after a pass with no improvement. Defaults are a 0.25 initial fraction, a 0.0001 minimum fraction, and 256 passes. It uses no randomness; identical bounds, initial values, objective, and options must produce identical results.
+
+For fixed Q64.64 boundaries and a per-segment atomic target, invert the linear liquidity equations analytically: quote liquidity is estimated from `targetQuoteAtomic * 2^128 / (upperSqrt - lowerSqrt)`, and base liquidity from `targetBaseAtomic * lowerSqrt * upperSqrt / (upperSqrt - lowerSqrt)`. Evaluate the floor and ceiling estimates within positive u128 liquidity bounds using the existing forward formulas (quote rounds up; distributed base rounds down). Choose the value with the smallest absolute atomic error, breaking ties toward lower liquidity, and report the achieved amount and residual. This is a segment-level analytic solve, not proof that combined market targets are jointly feasible or that the resulting curve passes protocol validation.
+
+The current curve-solver draft uses the initial linear price grid and deterministic atomic target allocations. With both quote and distribution targets, it derives pairwise quote allocations from the interval base-per-quote ratios and evaluates a bounded deterministic set of neighboring atomic splits. It solves each segment's liquidity analytically, applies local curve guardrails, evaluates the explicitly weighted objective, and returns candidates with `verificationStatus: "unverified"`. This is a curve-generation stage only: it does not synthesize fee or migration configuration, and no candidate is deployable until pinned-SDK validation and deterministic simulator verification succeed.
+
+Every locally valid solver candidate is run through the deterministic simulator before it is returned. The caller must explicitly provide validated fees, migration configuration, supply mode, simulation clock, activation point/type, and initial dynamic-fee state when dynamic fees are enabled. The verifier builds a fresh pre-launch state with the market's full base supply in the pool reserve, zero quote reserve, and zero fee/migration ledgers; finds the minimum quote input that reaches the terminal curve price under those settings; and runs that trade. It checks curve completion, final Q64.64 price, accumulated quote, base distributed, and distribution basis points against the candidate's locally computed curve values. Returned economic metrics are taken from this simulation. Simulator execution is reproducibility evidence, not SDK validation or protocol parity; `verificationStatus` remains `unverified` until stronger protocol evidence exists.
+
+The pinned Meteora DBC SDK `validateCurve` validator also runs on each generated curve. Tymba converts each segment's upper Q64.64 boundary and liquidity to SDK BN values without changing the integers, supplies the candidate start boundary, and rejects both a false validator result and thrown validation errors. The candidate records the pinned SDK version and curve-entry count. This validates the curve array only; it does not validate complete config parameters, token-supply mode, migration/vesting configuration, or DAMM allocations, and it does not promote the candidate's `verificationStatus`. Full-config acceptance remains a separate compiler gate.
+
+Each result carries a JSON-safe solver run record: normalized input, engine/algorithm/SDK versions, solver and simulation configuration, explicit objective weights, objective measurements and evidence, output metrics, issues, and warnings. Decimal and atomic values are strings. The solver is deterministic and consumes no randomness, so `randomSeed` is `null` with an explicit not-applicable policy; do not invent or imply a seed. Run records contain no generated timestamps or random identifiers; identical normalized inputs and configuration must produce identical run records.
 
 Keep economic optimization and DBC protocol math as separate modules (initially `src/economics` and `src/dbc-math` within the root package). Optimize over human price boundaries and liquidity weights, then quantize to protocol values and re-run the deterministic simulator and SDK validation. The quantized result is authoritative for output, constraints, explanations, and UI metrics.
 
@@ -2944,10 +2993,12 @@ The first meaningful milestone should be a CLI, not a web interface.
 Example:
 
 ```bash
-pnpm Tymba compile example.json
+pnpm tymba compile examples/demo-compile-request.json
 ```
 
-Input:
+The compile-request envelope contains the canonical `MarketIntent`, explicit objective weights, and deterministic simulator configuration. `MarketIntent` remains the economic input; objective weights and simulator state are separate and must not be silently defaulted. See `examples/demo-compile-request.json` for a full request. A MarketIntent-only file is rejected with a clear request for the missing solver configuration. Until the pinned SDK's complete DBC configuration and token-supply validators are wired into compilation, the CLI may return simulator-checked, SDK-curve-validated drafts with a `blocked` status; their protocol `verificationStatus` remains `unverified`, and no deployable configuration may be emitted.
+
+The following is the `marketIntent` portion of the compile request:
 
 ```json
 {
@@ -2985,34 +3036,14 @@ Input:
 Output:
 
 ```text
-SATISFIABLE
-
-Curve:
-
-1. $0.00020 → $0.00035
-   Quote: $11,800
-   Base: 60,000,000
-
-2. $0.00035 → $0.00080
-   Quote: $48,600
-   Base: 110,000,000
-
-3. $0.00080 → $0.00200
-   Quote: $89,600
-   Base: 78,000,000
-
-Total quote:
-$150,000
-
-Base distributed:
-248,000,000
-
-Distribution:
-24.8%
-
-Migration FDV:
-$2,000,000
+Compile: BLOCKED
+Deployable candidates: 0
+Curve drafts: 13
+Solver status: satisfied
+Failure: complete DBC configuration and token-supply validation are not implemented.
 ```
+
+The curve-draft count and economic metrics depend on the explicit compile request. A blocked result must not be presented as compiled or deployable.
 
 Then:
 
