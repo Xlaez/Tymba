@@ -31,7 +31,7 @@ Goal: turn the empty specification workspace into a minimal, testable engineerin
 
 - [x] Decide and document the initial package manager and TypeScript runtime.
 - [x] Initialize the root package configuration.
-- [ ] Initialize Git and create the initial repository baseline.
+- [x] Initialize Git and create the initial repository baseline.
 - [x] Add TypeScript configuration with strict type checking.
 - [x] Add formatter and linter configuration.
 - [x] Add a test runner and coverage command.
@@ -52,7 +52,7 @@ Goal: turn the empty specification workspace into a minimal, testable engineerin
 
 - [ ] A clean checkout can install dependencies and run the empty test suite.
 - [x] The repository has one documented command for format, lint, type check, and test.
-- [ ] No protocol behavior is implemented from an unverified assumption.
+- [x] No protocol behavior is implemented from an unverified assumption.
 
 ## Phase 1 — Verify Meteora behavior and establish domain contracts
 
