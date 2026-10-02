@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { runDemoSimulation } from "../../examples/demo-market.js";
 import { compileDocument, formatCompileReport } from "./compile.js";
+import { formatAttackDocument, runAttackDocument } from "./attack.js";
 import { createDemoInspectionDocument, formatDemoInspection } from "./inspect.js";
 import { serializeCliJson } from "./output.js";
 import { createSimulationDocument, formatSimulationReport } from "./simulate.js";
@@ -16,6 +17,8 @@ type ValidateArguments = Readonly<{
 }>;
 
 type CompileArguments = Readonly<{ requestPath: string; json: boolean }>;
+
+type AttackArguments = Readonly<{ requestPath: string; scenario: string; json: boolean }>;
 
 type OutputOptions = Readonly<{ json: boolean; advanced: boolean }>;
 
@@ -100,6 +103,31 @@ export async function runCli(args: readonly string[]): Promise<number> {
       return 2;
     }
   }
+  if (command === "attack") {
+    if (showHelp(commandArgs)) {
+      process.stdout.write(`${usage()}\n`);
+      return 0;
+    }
+    let parsed: AttackArguments;
+    try {
+      parsed = parseAttackArguments(commandArgs);
+    } catch (error) {
+      process.stderr.write(
+        `${error instanceof Error ? error.message : String(error)}\n${usage()}\n`,
+      );
+      return 2;
+    }
+    try {
+      const report = runAttackDocument(await readJson(parsed.requestPath), parsed.scenario);
+      process.stdout.write(
+        `${parsed.json ? serializeCliJson(report) : formatAttackDocument(report)}\n`,
+      );
+      return report.status === "completed" ? 0 : 1;
+    } catch (error) {
+      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      return 2;
+    }
+  }
   if (command !== "validate") {
     process.stderr.write(`Unsupported command: ${command}\n${usage()}\n`);
     return 2;
@@ -140,6 +168,32 @@ function parseCompileArguments(args: readonly string[]): CompileArguments {
   }
   if (!requestPath) throw new TypeError("A compile-request JSON file path is required");
   return { requestPath, json };
+}
+
+function parseAttackArguments(args: readonly string[]): AttackArguments {
+  let requestPath: string | undefined;
+  let scenario: string | undefined;
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index];
+    if (argument === "--json" && !json) json = true;
+    else if (argument === "--scenario" && scenario === undefined) {
+      const value = args[index + 1];
+      if (!value || value.startsWith("-"))
+        throw new TypeError("--scenario requires a scenario name");
+      scenario = value;
+      index += 1;
+    } else if (argument?.startsWith("-")) {
+      throw new TypeError(`Unknown or repeated attack option: ${argument}`);
+    } else if (argument) {
+      if (requestPath !== undefined)
+        throw new TypeError("Only one attack-request JSON path is supported");
+      requestPath = argument;
+    }
+  }
+  if (!requestPath) throw new TypeError("An attack-request JSON file path is required");
+  if (!scenario) throw new TypeError("--scenario is required");
+  return { requestPath, scenario, json };
 }
 
 function parseValidateArguments(args: readonly string[]): ValidateArguments {
@@ -212,6 +266,7 @@ function usage(): string {
   return [
     "Usage:",
     "  pnpm tymba compile <compile-request.json> [--json]",
+    "  pnpm tymba attack <attack-request.json> --scenario <scenario> [--json]",
     "  pnpm tymba validate <market-intent.json> [--fees <fees.json>] [--migration <migration.json>] [--json]",
     "  pnpm tymba simulate [--json] [--advanced]",
     "  pnpm tymba inspect [--json] [--advanced]",

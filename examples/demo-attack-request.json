@@ -1,0 +1,264 @@
+{
+  "schemaVersion": 1,
+  "preScenarioBuyQuoteAtomic": "10000000000",
+  "marketIntent": {
+    "assets": {
+      "base": {
+        "symbol": "MKT",
+        "decimals": 9
+      },
+      "quote": {
+        "symbol": "USDC",
+        "decimals": 6
+      }
+    },
+    "supply": {
+      "totalBase": "1000000000"
+    },
+    "pricing": {
+      "startFdv": "200000",
+      "migrationFdv": "2000000"
+    },
+    "targets": {
+      "quoteToMigration": "150000",
+      "baseDistributionPct": "25"
+    },
+    "preferences": {
+      "launchProfile": "balanced",
+      "sniperResistance": "high"
+    },
+    "solver": {
+      "maxSegments": 3
+    }
+  },
+  "objectiveWeights": {
+    "quoteError": "0.35",
+    "distributionError": "0.35",
+    "migrationPriceError": "0.1",
+    "earlyPriceImpact": "0",
+    "attackProfitability": "0",
+    "complexity": "0.2"
+  },
+  "simulation": {
+    "fees": {
+      "base": {
+        "kind": "linear",
+        "startingFeeBps": "1000",
+        "endingFeeBps": "100",
+        "periodCount": "3",
+        "periodFrequency": "10",
+        "clock": "timestamp"
+      },
+      "collectFeeMode": "quote",
+      "creatorTradingFeeShareBps": "2500"
+    },
+    "migration": {
+      "destination": "damm-v2"
+    },
+    "supplyMode": "fixed",
+    "clock": {
+      "slot": "0",
+      "timestampSeconds": "0"
+    },
+    "activationPoint": "0",
+    "activationType": "timestamp"
+  },
+  "attacks": {
+    "opening-sniper": {
+      "id": "demo-opening-sniper",
+      "randomSeed": "73",
+      "requestedIterations": "1",
+      "supportingAgentDistribution": {
+        "counts": {
+          "retail-buyer": "1",
+          "whale": "0",
+          "sniper": "0",
+          "momentum-trader": "0",
+          "profit-taker": "0",
+          "panic-seller": "0",
+          "random-trader": "0"
+        },
+        "templates": {
+          "retail-buyer": {
+            "id": "retail",
+            "archetype": "retail-buyer",
+            "initialQuoteBalanceAtomic": "500000000",
+            "initialBaseBalanceAtomic": "0",
+            "initialBaseCostBasisQuoteAtomic": "0",
+            "minimumBuyQuoteAtomic": "10000000",
+            "maximumBuyQuoteAtomic": "10000000",
+            "buyProbabilityBps": "10000",
+            "sellProbabilityBps": "0",
+            "sellShareBps": "10000"
+          }
+        }
+      },
+      "attacker": {
+        "id": "sniper",
+        "initialQuoteBalanceAtomic": "200000000",
+        "buyQuoteAtomic": "100000000",
+        "holdTicks": "1",
+        "minimumOtherBuyerBaseAtomic": "1",
+        "exitShareBps": "10000"
+      },
+      "ticks": {
+        "tickCount": "4",
+        "slotsPerTick": "1",
+        "secondsPerTick": "1"
+      }
+    },
+    "whale-entry": {
+      "id": "demo-whale-entry",
+      "randomSeed": "81",
+      "requestedIterations": "1",
+      "supportingAgentDistribution": {
+        "counts": {
+          "retail-buyer": "0",
+          "whale": "0",
+          "sniper": "0",
+          "momentum-trader": "0",
+          "profit-taker": "0",
+          "panic-seller": "0",
+          "random-trader": "0"
+        },
+        "templates": {}
+      },
+      "attacker": {
+        "id": "whale",
+        "initialQuoteBalanceAtomic": "20000000000",
+        "migrationQuoteShareBps": "1000",
+        "entryTickIndex": "0"
+      },
+      "ticks": {
+        "tickCount": "3",
+        "slotsPerTick": "1",
+        "secondsPerTick": "1"
+      }
+    },
+    "pump-and-dump": {
+      "id": "demo-pump-and-dump",
+      "randomSeed": "117",
+      "requestedIterations": "1",
+      "supportingAgentDistribution": {
+        "counts": {
+          "retail-buyer": "0",
+          "whale": "0",
+          "sniper": "0",
+          "momentum-trader": "1",
+          "profit-taker": "0",
+          "panic-seller": "0",
+          "random-trader": "0"
+        },
+        "templates": {
+          "momentum-trader": {
+            "id": "momentum",
+            "archetype": "momentum-trader",
+            "initialQuoteBalanceAtomic": "20000000000",
+            "initialBaseBalanceAtomic": "0",
+            "initialBaseCostBasisQuoteAtomic": "0",
+            "priceIncreaseThresholdBps": "1",
+            "buyQuoteAtomic": "1000000000",
+            "maximumPurchases": "5"
+          }
+        }
+      },
+      "attacker": {
+        "id": "attacker",
+        "initialQuoteBalanceAtomic": "20000000000",
+        "buyQuoteAtomic": "10000000000",
+        "entryTickIndex": "0",
+        "holdTicks": "1",
+        "minimumMomentumBaseAtomic": "1",
+        "exitShareBps": "10000"
+      },
+      "ticks": {
+        "tickCount": "5",
+        "slotsPerTick": "1",
+        "secondsPerTick": "1"
+      }
+    },
+    "sell-cascade": {
+      "id": "demo-sell-cascade",
+      "randomSeed": "91",
+      "requestedIterations": "1",
+      "cascadeAgentDistribution": {
+        "counts": {
+          "retail-buyer": "0",
+          "whale": "0",
+          "sniper": "0",
+          "momentum-trader": "0",
+          "profit-taker": "1",
+          "panic-seller": "1",
+          "random-trader": "0"
+        },
+        "templates": {
+          "profit-taker": {
+            "id": "profit",
+            "archetype": "profit-taker",
+            "initialQuoteBalanceAtomic": "1000000000",
+            "initialBaseBalanceAtomic": "3177070411289979",
+            "initialBaseCostBasisQuoteAtomic": "5000000000",
+            "entryTickIndex": "0",
+            "buyQuoteAtomic": "1000000000",
+            "targetGainBps": "1000",
+            "sellShareBps": "10000"
+          },
+          "panic-seller": {
+            "id": "panic",
+            "archetype": "panic-seller",
+            "initialQuoteBalanceAtomic": "1000000000",
+            "initialBaseBalanceAtomic": "3177070411289979",
+            "initialBaseCostBasisQuoteAtomic": "5000000000",
+            "entryTickIndex": "0",
+            "buyQuoteAtomic": "1000000000",
+            "drawdownThresholdBps": "1",
+            "sellShareBps": "10000"
+          }
+        }
+      },
+      "backgroundAgentDistribution": {
+        "counts": {
+          "retail-buyer": "1",
+          "whale": "1",
+          "sniper": "0",
+          "momentum-trader": "0",
+          "profit-taker": "0",
+          "panic-seller": "0",
+          "random-trader": "0"
+        },
+        "templates": {
+          "retail-buyer": {
+            "id": "retail",
+            "archetype": "retail-buyer",
+            "initialQuoteBalanceAtomic": "200000000000",
+            "initialBaseBalanceAtomic": "0",
+            "initialBaseCostBasisQuoteAtomic": "0",
+            "minimumBuyQuoteAtomic": "5000000000",
+            "maximumBuyQuoteAtomic": "5000000000",
+            "buyProbabilityBps": "10000",
+            "sellProbabilityBps": "0",
+            "sellShareBps": "10000"
+          },
+          "whale": {
+            "id": "background-whale",
+            "archetype": "whale",
+            "initialQuoteBalanceAtomic": "20000000000",
+            "initialBaseBalanceAtomic": "0",
+            "initialBaseCostBasisQuoteAtomic": "0",
+            "entryTickIndex": "0",
+            "buyQuoteAtomic": "20000000000"
+          }
+        }
+      },
+      "ticks": {
+        "tickCount": "60",
+        "slotsPerTick": "1",
+        "secondsPerTick": "10"
+      }
+    },
+    "fee-schedule-timing": {
+      "id": "demo-fee-schedule-timing",
+      "buyQuoteAtomic": "1000000000"
+    }
+  }
+}

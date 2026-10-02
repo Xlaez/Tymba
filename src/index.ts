@@ -1,11 +1,15 @@
 export type {
   AttackFailure,
+  AttackIterationOutcome,
   AttackResult,
   AttackRunMetadata,
   AttackRunStatus,
   AttackScenario,
   CompletedAttackResult,
   FailedAttackResult,
+  FailedFeeScheduleTimingResult,
+  FeeScheduleCandidateOutcome,
+  FeeScheduleTimingRunMetadata,
   FeeScheduleTimingMetrics,
   FeeScheduleTimingResult,
   OpeningSniperMetrics,
@@ -14,6 +18,7 @@ export type {
   PumpAndDumpResult,
   SellCascadeMetrics,
   SellCascadeResult,
+  SeededAttackScenario,
   WhaleEntryMetrics,
   WhaleEntryResult,
 } from "./domain/attack-result.js";
@@ -149,6 +154,10 @@ export {
   quoteSell,
   runDeterministicSimulation,
 } from "./domain/simulator.js";
+export {
+  DBC_SIMULATION_ENGINE_VERSION,
+  PINNED_SIMULATION_SDK_VERSION,
+} from "./domain/simulator.js";
 export type {
   DeterministicSimulationInput,
   DeterministicTradeInput,
@@ -177,15 +186,78 @@ export type {
   DeterministicSimulationMetrics,
   DeterministicSimulationResult,
   DistributionSummary,
+  FailedDeterministicSimulationResult,
   FailedSimulationResult,
+  FailedStochasticSimulationResult,
   SimulationFailure,
   SimulationKind,
   SimulationResult,
   SimulationRunMetadata,
   SimulationRunStatus,
+  SimulationUncertainty,
+  SimulationUncertaintyLabel,
+  SimulationUncertaintyReason,
+  StochasticIterationOutcome,
   StochasticSimulationResult,
   StochasticSimulationSummary,
 } from "./domain/simulation.js";
+export type { SeededRandom, SeededRunMetadata } from "./domain/seeded-random.js";
+export {
+  createSeededRandom,
+  createSeededRunMetadata,
+  SEEDED_RANDOM_ALGORITHM,
+  SEEDED_RANDOM_MAX_SEED,
+  SEEDED_RANDOM_UINT64_RANGE,
+} from "./domain/seeded-random.js";
+export type {
+  AgentPortfolioObservation,
+  AgentPortfolioResult,
+  SimulationAgentObservation,
+  SimulationAction,
+  SimulationAgent,
+  SimulationObservation,
+  SimulationExecutionOrder,
+  StochasticSimulationEvent,
+  StochasticSimulationInput,
+  StochasticSimulationTrace,
+  StochasticTickConfiguration,
+} from "./domain/stochastic-simulation.js";
+export { runStochasticSimulationTrace } from "./domain/stochastic-simulation.js";
+export type {
+  AgentFunding,
+  MvpAgentConfigurationMap,
+  MvpAgentConfiguration,
+  MomentumTraderConfiguration,
+  PanicSellerConfiguration,
+  ProfitTakerConfiguration,
+  RandomTraderConfiguration,
+  RetailBuyerConfiguration,
+  SniperConfiguration,
+  WhaleConfiguration,
+} from "./domain/simulation-agents.js";
+export { createMvpAgent } from "./domain/simulation-agents.js";
+export type {
+  AgentDistributionConfiguration,
+  AgentPopulation,
+  StochasticScenarioConfiguration,
+} from "./domain/simulation-scenario.js";
+export {
+  createMvpAgentPopulation,
+  createStochasticSimulationInput,
+  MAX_MVP_AGENT_POPULATION,
+} from "./domain/simulation-scenario.js";
+export type { MonteCarloSimulationInput } from "./domain/monte-carlo.js";
+export { MAX_MVP_MONTE_CARLO_ITERATIONS, runMonteCarloSimulation } from "./domain/monte-carlo.js";
+export type { OpeningSniperAttackInput } from "./domain/attacks/opening-sniper.js";
+export { runOpeningSniperAttack } from "./domain/attacks/opening-sniper.js";
+export type { WhaleEntryAttackInput } from "./domain/attacks/whale-entry.js";
+export { runWhaleEntryAttack } from "./domain/attacks/whale-entry.js";
+export type { PumpAndDumpAttackInput } from "./domain/attacks/pump-and-dump.js";
+export { runPumpAndDumpAttack } from "./domain/attacks/pump-and-dump.js";
+export type { SellCascadeAttackInput } from "./domain/attacks/sell-cascade.js";
+export { runSellCascadeAttack } from "./domain/attacks/sell-cascade.js";
+export type { FeeScheduleTimingAttackInput } from "./domain/attacks/fee-schedule-timing.js";
+export { runFeeScheduleTimingAttack } from "./domain/attacks/fee-schedule-timing.js";
 export type {
   CandidateConstraintAssessment,
   ConstraintConflictInput,

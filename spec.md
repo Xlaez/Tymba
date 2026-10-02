@@ -1192,6 +1192,20 @@ Sells after drawdown threshold
 Stochastic baseline participant
 ```
 
+The MVP archetypes are transparent rule-based models, not behavior learned from historical users. Each configured agent has an explicit identifier, starting quote/base wallet balances, and base-token cost basis. Buy sizes and wallet amounts are atomic `bigint` values; probabilities, allocation shares, and gain/drawdown thresholds are basis-point `bigint` values; tick counts and time intervals are also explicit integers. Every archetype parameter that changes economic behavior is required rather than silently defaulted.
+
+- Retail buyers draw a configured per-tick buy probability, sample a quote size from an explicit inclusive range, and independently draw an exit probability while holding base tokens.
+- Whales make one configured quote-sized purchase at an explicit tick.
+- Snipers buy on the first tick, then exit at most once after both the configured minimum hold and cumulative retail-buyer base purchases reach their explicit thresholds. They exit the configured position share; neither demand nor a profitable exit is assumed.
+- Momentum traders compare the current observed spot price with the preceding tick, buy when the configured increase threshold is met, and stop at an explicit purchase count.
+- Profit takers enter at an explicit tick and quote size, then sell a configured position share after the configured gain threshold.
+- Panic sellers enter at an explicit tick and quote size, then sell a configured position share after the configured drawdown from their observed peak.
+- Random traders select buy, sell, or wait from explicit probabilities and sample buys from an explicit quote-size range; buy and sell probabilities must sum to no more than 100%.
+
+The simulator maintains per-agent wallet balances and average quote cost basis from actual consumed inputs and delivered outputs. An agent cannot spend beyond its quote balance or sell more base than it owns. Starting agent base balances cannot exceed the pool's already-distributed base supply. These simplified strategies and their configured assumptions must accompany every report; they are not claims about actual participant behavior.
+
+Scenario configuration explicitly supplies the initial pool candidate, random seed, tick count, slot and timestamp increments, execution-order policy, per-archetype counts, and one complete behavior/funding template for every nonzero count. The template is copied to each generated agent with a deterministic unique ID; callers needing heterogeneous agents can provide their individually configured agents directly. The synchronous in-memory MVP population is capped at 10,000 agents as a resource guard. No tick duration, trade size, agent count, or execution policy is silently selected.
+
 ---
 
 ## 9.2 Simulation loop
@@ -1203,13 +1217,17 @@ for each simulation:
   initializePool()
 
   for each tick:
-    agents.observe(state)
-    actions = agents.decide(state)
-    execute(actions)
-    record(metrics)
+    advanceSlotAndTimestamp()
+    observation = snapshot(state)
+    actions = agents.decide(observation)
+    orderActions(explicitlyConfiguredOrSeededRandomOrder)
+    executeSequentially(actions)
+    record(observation, actions, executions, metrics)
 
   summarize()
 ```
+
+All agents observe the same pre-execution pool snapshot for a tick. Observations include cumulative base purchased by each archetype, and portfolios include successful buy/sell counts. Their actions are collected before any trade executes. The execution-order policy is an explicit simulation input: preserve configured agent order or shuffle with the run's recorded seed. Trades then execute sequentially and every observation, decision, execution, rejection, and agent failure is retained in the run trace. Both slot and timestamp advance by explicit positive increments; no wall-clock time or hidden ordering default is used. A run with an agent implementation failure is marked partial, while an expected rejected trade remains recorded without hiding the rest of the modeled run.
 
 ---
 
@@ -1246,6 +1264,12 @@ These outputs must be labeled as simulations, not predictions or guarantees.
 
 The result contract in §20.1 is authoritative. Every run records engine and SDK versions; stochastic runs also record the random seed, requested/completed iteration counts, and archetype counts. Report distributions as statistics over completed runs and distinguish partial or failed runs from complete results. Do not interpret a percentile as a guarantee.
 
+The Monte Carlo runner derives one unsigned 64-bit iteration seed per run from the explicitly supplied master seed using the versioned `splitmix64-v1` generator. It retains each iteration seed, status, completed tick count, and failure detail. Summary statistics exclude partial and failed iterations; if none complete, return a failed result without fabricated zero-valued statistics. Graduation frequency is calculated over completed iterations. Time-to-migration is conditional on completed iterations that reached the migration threshold. Quote accumulation is the signed change in the pool's quote reserve; holder concentration is computed among tracked agent balances, not inferred across unmodeled wallets. Fee summaries use their explicit base/quote components.
+
+Graduation means that the modeled DBC curve reached its configured quote threshold; it does not imply DAMM v2 settlement or SDK/on-chain migration verification. Maximum drawdown is the largest observed peak-to-later-price decline over executed trades, maximum price impact is the largest per-trade impact, and fee distributions come from explicit ledger deltas. Top-holder and top-ten concentration use the total base balances held by configured agents for that completed run; they do not claim concentration across wallets absent from the scenario.
+
+Percentiles use the nearest-rank rule with no interpolation: rank = `ceil(sampleSize * percentileBps / 10_000)`. The p50 is therefore the lower middle observation for an even-sized sample. Fee-pair quantiles retain the joint observation and use base-fee atomic amount, then quote-fee atomic amount, as the deterministic lexicographic sort key. Uncertainty labels are descriptive model diagnostics, not statistical confidence intervals: fewer than 30 completed runs is `insufficient-data`; otherwise any partial/failed runs or a p95–p05 spread of at least 50% of the largest absolute tail/median magnitude yields `high`; a spread from 20% to below 50% yields `moderate`; otherwise the label is `low`. The spread calculation uses a denominator of at least one atomic unit/basis point. Reasons, sample size, completion rate, and maximum relative spread accompany the label.
+
 ---
 
 # 10. Adversarial Engine
@@ -1279,6 +1303,8 @@ drawdown after exit
 fees paid
 ```
 
+The attacker executes first in configured order on tick zero. It makes one configured purchase, then waits until both the explicit hold duration has elapsed and cumulative retail-buyer base purchases meet the configured minimum. It exits the configured share at most once. Retail price disadvantage compares retail buyers' quote-weighted average execution price after entry with the post-entry spot price. Attacker PnL includes realized quote balance and remaining base marked at the final spot price, less its initial quote capital. These are modeled outcomes under the supplied distribution, not claims about actual users or guaranteed profits. A run requires at least one retail buyer, a bonding pool, no other sniper agents, and stays within a one-million agent-tick action budget.
+
 ---
 
 ### Attack 2 — Whale Entry
@@ -1295,6 +1321,8 @@ base acquired
 average execution price
 post-buy concentration
 ```
+
+The attacker makes one quote buy sized as `floor(migrationQuoteThresholdAtomic * migrationQuoteShareBps / 10000)` at an explicit tick, and has first configured execution priority on that tick. Price displacement compares the pool spot immediately before and after the fill. Post-buy concentration is the attacker's acquired base divided by the base held by all tracked agents immediately after the fill; unmodeled wallets are excluded. A trade that does not execute or is interrupted by an earlier modeled migration is retained as a partial iteration, not as zero impact. The run requires a bonding pool, no other whale archetypes, sufficient quote funding, and stays within a one-million agent-tick action budget.
 
 ---
 
@@ -1315,6 +1343,8 @@ late-buyer loss
 quote required for market recovery
 ```
 
+The attacker buys its explicit quote amount at the configured tick, then waits for both the configured hold and cumulative momentum-trader base purchases to reach the required threshold before exiting its configured share once. Supporting agents execute before the attacker in configured order, so qualifying momentum purchases on the exit tick are applied before the dump. Late-buyer loss is the non-negative mark-to-market loss for the momentum cohort that bought after attacker entry and before exit, measured at the lowest subsequent observed spot. Recovery quote is the smallest simulated quote input that restores the final bonding-curve spot to the observed pre-recovery peak; it is zero if the market has already recovered. If the pool migrated or that peak is unreachable on the remaining curve, the iteration is partial rather than assigning a zero recovery cost. Attacker PnL includes its remaining base marked at final spot and its quote balance net of initial quote capital.
+
 ---
 
 ### Attack 4 — Sell Cascade
@@ -1332,6 +1362,8 @@ price recovery requirement
 migration delay
 ```
 
+The attack distribution contains at least two explicit profit-taker/panic-seller agents, kept ahead of background agents in configured execution order; the background distribution cannot contain these cascade archetypes. Each attack iteration is paired with a no-cascade baseline using the same initial candidate, clock, background configuration, and iteration seed. A completed measurement requires at least two distinct cascade agents to sell and both traces to reach the DBC migration threshold. Migration delay is attack graduation time minus baseline graduation time in seconds; a negative value means the attacked run reached the threshold earlier. Quote outflow sums quote received by cascade agents. Recovery quote is calculated immediately after the last cascade sell to restore the pre-cascade peak, not after later background recovery. The recovery calculation follows the local DBC curve and does not assert post-migration market liquidity.
+
 ---
 
 ### Attack 5 — Fee-Schedule Exploit
@@ -1346,7 +1378,9 @@ fee saved
 PnL improvement
 ```
 
-Attack result contracts and their scenario-specific metric units are defined in §20.2. Each run must preserve its seed, iteration counts, and engine/SDK versions so the outcome can be reproduced. A failed run records a failure and must not be presented as a completed attack result.
+The MVP performs a deterministic round-trip sweep at the current eligible schedule point and every remaining fee-period boundary through the ending-fee period. Each candidate uses the same initial pool snapshot, quote buy size, and immediate full-base sell. The best entry clock maximizes quote PnL; ties keep the earliest candidate. Fee savings and PnL improvement compare the best candidate with the earliest completed candidate. Candidate failures remain in the result and are excluded from selection. This timing sweep consumes no randomness and therefore has no random seed; its candidate clocks and outcomes are the reproducibility record.
+
+Attack result contracts and their scenario-specific metric units are defined in §20.2. Seeded attack runs preserve their seed, iteration counts, and engine/SDK versions so the outcome can be reproduced. The deterministic fee-schedule sweep instead records candidate clocks and outcomes without a seed. A failed run records a failure and must not be presented as a completed attack result.
 
 ---
 
@@ -2025,8 +2059,20 @@ type AgentArchetype =
   | "random-trader";
 
 type DistributionSummary<Value> = {
+  p05: Value;
   median: Value;
-  p95?: Value;
+  p95: Value;
+};
+
+type SimulationUncertaintyLabel = "insufficient-data" | "low" | "moderate" | "high";
+
+type SimulationUncertainty = {
+  label: SimulationUncertaintyLabel;
+  reasons: readonly ("fewer-than-30-completed-runs" | "partial-or-failed-runs" | "wide-outcome-spread")[];
+  requestedSampleSize: bigint;
+  completedSampleSize: bigint;
+  completionRateBps: bigint;
+  relativeSpreadBps?: bigint;
 };
 
 type SimulationRunMetadata = {
@@ -2089,27 +2135,59 @@ type StochasticSimulationSummary = {
   baseDistributed: DistributionSummary<AssetAmount<"base">>;
   timeToMigrationSeconds?: DistributionSummary<bigint>;
   maximumDrawdownBps: DistributionSummary<bigint>;
+  maximumPriceImpactBps: DistributionSummary<bigint>;
   topHolderConcentrationBps?: DistributionSummary<bigint>;
   topTenHolderConcentrationBps?: DistributionSummary<bigint>;
+  feesGenerated: DistributionSummary<AssetAmountPair>;
   creatorFees?: DistributionSummary<AssetAmountPair>;
   sniperExtractionQuote?: DistributionSummary<AssetAmount<"quote">>;
+};
+
+type StochasticIterationOutcome = {
+  id: string;
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  status: "completed" | "partial" | "failed";
+  completedTicks: bigint;
+  failure?: SimulationFailure;
 };
 
 type StochasticSimulationResult = SimulationRunMetadata & {
   kind: "stochastic";
   status: "completed" | "partial";
   randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
   requestedIterations: bigint;
   completedIterations: bigint;
+  partialIterations: bigint;
+  failedIterations: bigint;
   agentCounts: AgentCounts;
+  iterationOutcomes: readonly StochasticIterationOutcome[];
+  uncertainty: SimulationUncertainty;
   summary: StochasticSimulationSummary;
 };
 
-type FailedSimulationResult = SimulationRunMetadata & {
-  kind: SimulationKind;
+type FailedStochasticSimulationResult = SimulationRunMetadata & {
+  kind: "stochastic";
+  status: "failed";
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  requestedIterations: bigint;
+  completedIterations: 0n;
+  partialIterations: bigint;
+  failedIterations: bigint;
+  iterationOutcomes: readonly StochasticIterationOutcome[];
+  uncertainty: SimulationUncertainty;
+  failure: SimulationFailure;
+};
+
+type FailedDeterministicSimulationResult = SimulationRunMetadata & {
+  kind: "deterministic";
   status: "failed";
   failure: SimulationFailure;
 };
+
+type FailedSimulationResult = FailedStochasticSimulationResult | FailedDeterministicSimulationResult;
 
 type SimulationResult =
   | DeterministicSimulationResult
@@ -2130,12 +2208,26 @@ type AttackScenario =
   | "fee-schedule-timing";
 
 type AttackRunStatus = "completed" | "partial" | "failed";
+type SeededAttackScenario = Exclude<AttackScenario, "fee-schedule-timing">;
+
+type AttackIterationOutcome = {
+  id: string;
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  status: "completed" | "partial" | "failed";
+  completedTicks: bigint;
+  failure?: AttackFailure;
+};
 
 type AttackRunMetadata = {
   id: string;
   randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
   requestedIterations: bigint;
   completedIterations: bigint;
+  partialIterations: bigint;
+  failedIterations: bigint;
+  iterationOutcomes: readonly AttackIterationOutcome[];
   engineVersion: string;
   sdkVersion: string;
   startedAtSeconds: bigint;
@@ -2175,8 +2267,41 @@ type SellCascadeMetrics = {
 
 type FeeScheduleTimingMetrics = {
   bestEntryClock: SimulationClock;
-  feesSaved: DistributionSummary<AssetAmount>;
-  pnlImprovementQuote: DistributionSummary<AssetAmount<"quote">>;
+  feesSaved: AssetAmountPair;
+  pnlImprovementQuote: AssetAmount<"quote">;
+};
+
+type FeeScheduleCandidateOutcome = {
+  candidateIndex: bigint;
+  entryClock: SimulationClock;
+  status: "completed" | "failed";
+  feesPaid?: AssetAmountPair;
+  pnlQuote?: AssetAmount<"quote">;
+  failure?: AttackFailure;
+};
+
+type FeeScheduleTimingRunMetadata = {
+  id: string;
+  scenario: "fee-schedule-timing";
+  status: "completed" | "partial" | "failed";
+  candidateCount: bigint;
+  completedCandidates: bigint;
+  failedCandidates: bigint;
+  candidateOutcomes: readonly FeeScheduleCandidateOutcome[];
+  engineVersion: string;
+  sdkVersion: string;
+  startedAtSeconds: bigint;
+  completedAtSeconds: bigint;
+};
+
+type FeeScheduleTimingResult = FeeScheduleTimingRunMetadata & {
+  status: "completed" | "partial";
+  metrics: FeeScheduleTimingMetrics;
+};
+
+type FailedFeeScheduleTimingResult = FeeScheduleTimingRunMetadata & {
+  status: "failed";
+  failure: AttackFailure;
 };
 
 type CompletedAttackResult<Scenario extends AttackScenario, Metrics> =
@@ -2187,7 +2312,7 @@ type CompletedAttackResult<Scenario extends AttackScenario, Metrics> =
   };
 
 type FailedAttackResult = AttackRunMetadata & {
-  scenario: AttackScenario;
+  scenario: SeededAttackScenario;
   status: "failed";
   failure: AttackFailure;
 };
@@ -2197,11 +2322,14 @@ type AttackResult =
   | CompletedAttackResult<"whale-entry", WhaleEntryMetrics>
   | CompletedAttackResult<"pump-and-dump", PumpAndDumpMetrics>
   | CompletedAttackResult<"sell-cascade", SellCascadeMetrics>
-  | CompletedAttackResult<"fee-schedule-timing", FeeScheduleTimingMetrics>
-  | FailedAttackResult;
+  | FeeScheduleTimingResult
+  | FailedAttackResult
+  | FailedFeeScheduleTimingResult;
 ```
 
-Quote/base quantities are asset-tagged atomic amounts. Prices are `Decimal`, percentages/concentration/drawdown are basis points, and durations/iteration counts use `bigint`. Attack metrics summarize the seeded runs; the scenario does not imply that its assumed participants or behavior represent real users.
+The CLI wraps an attack result with the explicit market intent, objective weights, simulator configuration, scenario assumptions, and selected candidate ID. An optional positive `preScenarioBuyQuoteAtomic` performs an exact deterministic quote-token buy against the verified initial curve before the attack and is recorded as an assumption. A candidate compiled for an attack remains labeled `curve-draft` with `verificationStatus: "unverified"` until complete DBC configuration and token-supply validation exist. The report's evidence classification is `modeled`, and its status must never imply deployability.
+
+Quote/base quantities are asset-tagged atomic amounts. Prices are `Decimal`, percentages/concentration/drawdown are basis points, and durations/iteration counts use `bigint`. Attack metrics summarize completed seeded iterations; partial and failed outcomes remain visible but are excluded from distributions. If no iteration completes, return a failed result with no fabricated metrics. Fee-pair percentile components are summarized independently by asset. Attack runs preserve the exact iteration seeds and status so they can be replayed; the scenario does not imply that its assumed participants or behavior represent real users.
 
 ## 20.3 Audit finding and evidence contracts
 

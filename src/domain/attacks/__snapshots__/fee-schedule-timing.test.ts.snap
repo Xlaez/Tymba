@@ -1,0 +1,131 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`fee-schedule timing attack > sweeps every fee-decay boundary and finds the best round-trip entry clock 1`] = `
+{
+  "candidateOutcomes": [
+    {
+      "candidateIndex": 0n,
+      "entryClock": {
+        "slot": 0n,
+        "timestampSeconds": 100n,
+      },
+      "feesPaid": {
+        "base": {
+          "decimals": 9,
+          "raw": 394899857979210n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 72091920n,
+        },
+      },
+      "pnlQuote": {
+        "amount": {
+          "decimals": 6,
+          "raw": -188965904n,
+        },
+        "asset": "quote",
+      },
+      "status": "completed",
+    },
+    {
+      "candidateIndex": 1n,
+      "entryClock": {
+        "slot": 0n,
+        "timestampSeconds": 110n,
+      },
+      "feesPaid": {
+        "base": {
+          "decimals": 9,
+          "raw": 276429900585448n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 52126525n,
+        },
+      },
+      "pnlQuote": {
+        "amount": {
+          "decimals": 6,
+          "raw": -134327367n,
+        },
+        "asset": "quote",
+      },
+      "status": "completed",
+    },
+    {
+      "candidateIndex": 2n,
+      "entryClock": {
+        "slot": 0n,
+        "timestampSeconds": 120n,
+      },
+      "feesPaid": {
+        "base": {
+          "decimals": 9,
+          "raw": 157959943191684n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 30735676n,
+        },
+      },
+      "pnlQuote": {
+        "amount": {
+          "decimals": 6,
+          "raw": -77929732n,
+        },
+        "asset": "quote",
+      },
+      "status": "completed",
+    },
+    {
+      "candidateIndex": 3n,
+      "entryClock": {
+        "slot": 0n,
+        "timestampSeconds": 130n,
+      },
+      "feesPaid": {
+        "base": {
+          "decimals": 9,
+          "raw": 39489985797922n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 7921011n,
+        },
+      },
+      "pnlQuote": {
+        "amount": {
+          "decimals": 6,
+          "raw": -19775019n,
+        },
+        "asset": "quote",
+      },
+      "status": "completed",
+    },
+  ],
+  "metrics": {
+    "bestEntryClock": {
+      "slot": 0n,
+      "timestampSeconds": 130n,
+    },
+    "feesSaved": {
+      "base": {
+        "decimals": 9,
+        "raw": 355409872181288n,
+      },
+      "quote": {
+        "decimals": 6,
+        "raw": 64170909n,
+      },
+    },
+    "pnlImprovementQuote": {
+      "amount": {
+        "decimals": 6,
+        "raw": 169190885n,
+      },
+      "asset": "quote",
+    },
+  },
+}
+`;

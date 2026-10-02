@@ -1,0 +1,106 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`pump-and-dump attack > waits for momentum demand, sells after its buys, and reproduces risk metrics 1`] = `
+{
+  "iterationSeeds": [
+    5412126991504962750n,
+    8613151346115618174n,
+    8493505064905830575n,
+  ],
+  "iterationStatuses": [
+    "completed",
+    "completed",
+    "completed",
+  ],
+  "metrics": {
+    "attackerPnlQuote": {
+      "median": {
+        "amount": {
+          "decimals": 6,
+          "raw": 239725343n,
+        },
+        "asset": "quote",
+      },
+      "p05": {
+        "amount": {
+          "decimals": 6,
+          "raw": 239725343n,
+        },
+        "asset": "quote",
+      },
+      "p95": {
+        "amount": {
+          "decimals": 6,
+          "raw": 239725343n,
+        },
+        "asset": "quote",
+      },
+    },
+    "feesPaid": {
+      "median": {
+        "base": {
+          "decimals": 9,
+          "raw": 354248688933789n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 82745256n,
+        },
+      },
+      "p05": {
+        "base": {
+          "decimals": 9,
+          "raw": 354248688933789n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 82745256n,
+        },
+      },
+      "p95": {
+        "base": {
+          "decimals": 9,
+          "raw": 354248688933789n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 82745256n,
+        },
+      },
+    },
+    "lateBuyerLossBps": {
+      "median": 2080n,
+      "p05": 2080n,
+      "p95": 2080n,
+    },
+    "peakToTroughDrawdownBps": {
+      "median": 2179n,
+      "p05": 2179n,
+      "p95": 2179n,
+    },
+    "recoveryQuoteRequired": {
+      "median": {
+        "amount": {
+          "decimals": 6,
+          "raw": 10343156914n,
+        },
+        "asset": "quote",
+      },
+      "p05": {
+        "amount": {
+          "decimals": 6,
+          "raw": 10343156914n,
+        },
+        "asset": "quote",
+      },
+      "p95": {
+        "amount": {
+          "decimals": 6,
+          "raw": 10343156914n,
+        },
+        "asset": "quote",
+      },
+    },
+  },
+}
+`;

@@ -22,6 +22,17 @@ pnpm tymba compile examples/demo-compile-request.json --json
 
 At this phase the command returns simulator-checked, pinned-SDK curve-validated drafts but remains `blocked` and exits non-zero: their protocol `verificationStatus` remains `unverified` because complete DBC configuration and token-supply validation are not implemented. It emits no deployable candidate or protocol configuration. Passing only `examples/demo-market.json` also fails clearly because solver weights and simulation settings are not inferred.
 
+Run a seeded opening-sniper attack against the solver-generated curve draft with:
+
+```sh
+pnpm tymba attack examples/demo-attack-request.json --scenario sniper
+pnpm tymba attack examples/demo-attack-request.json --scenario sniper --json
+```
+
+The attack request includes the market intent, solver weights, simulation configuration, agent distribution, attacker funding, and timing parameters. Its optional `preScenarioBuyQuoteAtomic` performs the same explicit deterministic warm-up before each selected attack, useful when a scenario needs pre-existing base holders. The report includes that assumption, labels outcomes as modeled, and keeps the curve marked as a non-deployable draft while full DBC configuration and token-supply validation remain pending.
+
+The tracked attack request has fixtures for all five scenarios. Select `sniper` or `opening-sniper`, `whale-entry`, `pump-and-dump`, `sell-cascade`, or `fee-schedule-timing` with `--scenario`; each run deterministically compiles to the same curve-draft ID from the unchanged request.
+
 Run the fixed, deterministic simulator fixture with:
 
 ```sh

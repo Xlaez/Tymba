@@ -1,0 +1,83 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`opening sniper attack > waits for retail demand, exits once, and produces reproducible metrics 1`] = `
+{
+  "iterationSeeds": [
+    15028230723423410763n,
+    9409086809776413385n,
+    7227411385097881304n,
+  ],
+  "iterationStatuses": [
+    "completed",
+    "completed",
+    "completed",
+  ],
+  "metrics": {
+    "attackerPnlQuote": {
+      "median": {
+        "amount": {
+          "decimals": 6,
+          "raw": -1963468n,
+        },
+        "asset": "quote",
+      },
+      "p05": {
+        "amount": {
+          "decimals": 6,
+          "raw": -1963468n,
+        },
+        "asset": "quote",
+      },
+      "p95": {
+        "amount": {
+          "decimals": 6,
+          "raw": -1963468n,
+        },
+        "asset": "quote",
+      },
+    },
+    "drawdownAfterExitBps": {
+      "median": 0n,
+      "p05": 0n,
+      "p95": 0n,
+    },
+    "feesPaid": {
+      "median": {
+        "base": {
+          "decimals": 9,
+          "raw": 3994840652822n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 792216n,
+        },
+      },
+      "p05": {
+        "base": {
+          "decimals": 9,
+          "raw": 3994840652822n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 792216n,
+        },
+      },
+      "p95": {
+        "base": {
+          "decimals": 9,
+          "raw": 3994840652822n,
+        },
+        "quote": {
+          "decimals": 6,
+          "raw": 792216n,
+        },
+      },
+    },
+    "lateBuyerPriceDisadvantageBps": {
+      "median": 86n,
+      "p05": 86n,
+      "p95": 86n,
+    },
+  },
+}
+`;

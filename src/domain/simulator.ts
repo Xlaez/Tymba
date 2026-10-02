@@ -44,8 +44,8 @@ const DYNAMIC_FEE_DENOMINATOR = 100_000_000_000n;
 const DYNAMIC_FEE_ROUNDING_OFFSET = DYNAMIC_FEE_DENOMINATOR - 1n;
 const BASIS_POINTS = 10_000n;
 const DEFAULT_DYNAMIC_BIN_STEP_Q64 = Q64_ONE / BASIS_POINTS;
-const ENGINE_VERSION = "0.1.0";
-const SDK_VERSION = "1.5.13";
+export const DBC_SIMULATION_ENGINE_VERSION = "0.1.0";
+export const PINNED_SIMULATION_SDK_VERSION = "1.5.13";
 const ExactDecimal = Decimal.clone({ precision: 512, toExpNeg: -100_000, toExpPos: 100_000 });
 
 export type DeterministicTradeInput = Readonly<{
@@ -374,8 +374,8 @@ export function runDeterministicSimulation(
 
   return {
     id: input.id,
-    engineVersion: ENGINE_VERSION,
-    sdkVersion: SDK_VERSION,
+    engineVersion: DBC_SIMULATION_ENGINE_VERSION,
+    sdkVersion: PINNED_SIMULATION_SDK_VERSION,
     startedAtSeconds: initialState.clock.timestampSeconds,
     completedAtSeconds: state.clock.timestampSeconds,
     kind: "deterministic",

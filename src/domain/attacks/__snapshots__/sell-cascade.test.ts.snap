@@ -1,0 +1,74 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`sell-cascade attack > measures consecutive exits against a matched no-cascade migration baseline 1`] = `
+{
+  "iterationSeeds": [
+    17894217328592812498n,
+    5808139794038648948n,
+    17986379619667210499n,
+  ],
+  "iterationStatuses": [
+    "completed",
+    "completed",
+    "completed",
+  ],
+  "metrics": {
+    "maximumDrawdownBps": {
+      "median": 4001n,
+      "p05": 4001n,
+      "p95": 4001n,
+    },
+    "migrationDelaySeconds": {
+      "median": 50n,
+      "p05": 50n,
+      "p95": 50n,
+    },
+    "quoteOutflow": {
+      "median": {
+        "amount": {
+          "decimals": 6,
+          "raw": 48759923487n,
+        },
+        "asset": "quote",
+      },
+      "p05": {
+        "amount": {
+          "decimals": 6,
+          "raw": 48759923487n,
+        },
+        "asset": "quote",
+      },
+      "p95": {
+        "amount": {
+          "decimals": 6,
+          "raw": 48759923487n,
+        },
+        "asset": "quote",
+      },
+    },
+    "recoveryQuoteRequired": {
+      "median": {
+        "amount": {
+          "decimals": 6,
+          "raw": 39252447968n,
+        },
+        "asset": "quote",
+      },
+      "p05": {
+        "amount": {
+          "decimals": 6,
+          "raw": 39252447968n,
+        },
+        "asset": "quote",
+      },
+      "p95": {
+        "amount": {
+          "decimals": 6,
+          "raw": 39252447968n,
+        },
+        "asset": "quote",
+      },
+    },
+  },
+}
+`;

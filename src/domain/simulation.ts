@@ -3,6 +3,7 @@ import type { AssetAmount, AssetAmountPair, PoolState } from "./pool-state.js";
 import type { VerificationStatus } from "./status.js";
 import type { TradeResult } from "./trade-result.js";
 import type { PostMigrationLiquidityAllocation } from "./migration-allocation.js";
+import type { SeededRunMetadata } from "./seeded-random.js";
 
 export type SimulationKind = "deterministic" | "stochastic";
 
@@ -18,8 +19,25 @@ export type AgentArchetype =
   | "random-trader";
 
 export type DistributionSummary<Value> = Readonly<{
+  p05: Value;
   median: Value;
-  p95?: Value;
+  p95: Value;
+}>;
+
+export type SimulationUncertaintyLabel = "insufficient-data" | "low" | "moderate" | "high";
+
+export type SimulationUncertaintyReason =
+  | "fewer-than-30-completed-runs"
+  | "partial-or-failed-runs"
+  | "wide-outcome-spread";
+
+export type SimulationUncertainty = Readonly<{
+  label: SimulationUncertaintyLabel;
+  reasons: readonly SimulationUncertaintyReason[];
+  requestedSampleSize: bigint;
+  completedSampleSize: bigint;
+  completionRateBps: bigint;
+  relativeSpreadBps?: bigint;
 }>;
 
 export type SimulationRunMetadata = Readonly<{
@@ -78,31 +96,65 @@ export type StochasticSimulationSummary = Readonly<{
   baseDistributed: DistributionSummary<AssetAmount<"base">>;
   timeToMigrationSeconds?: DistributionSummary<bigint>;
   maximumDrawdownBps: DistributionSummary<bigint>;
+  maximumPriceImpactBps: DistributionSummary<bigint>;
   topHolderConcentrationBps?: DistributionSummary<bigint>;
   topTenHolderConcentrationBps?: DistributionSummary<bigint>;
+  feesGenerated: DistributionSummary<AssetAmountPair>;
   creatorFees?: DistributionSummary<AssetAmountPair>;
   sniperExtractionQuote?: DistributionSummary<AssetAmount<"quote">>;
 }>;
 
-export type StochasticSimulationResult = Readonly<
-  SimulationRunMetadata & {
-    kind: "stochastic";
-    status: "completed" | "partial";
-    randomSeed: bigint;
-    requestedIterations: bigint;
-    completedIterations: bigint;
-    agentCounts: AgentCounts;
-    summary: StochasticSimulationSummary;
+export type StochasticIterationOutcome = Readonly<
+  SeededRunMetadata & {
+    id: string;
+    status: "completed" | "partial" | "failed";
+    completedTicks: bigint;
+    failure?: SimulationFailure;
   }
 >;
 
-export type FailedSimulationResult = Readonly<
+export type StochasticSimulationResult = Readonly<
+  SimulationRunMetadata &
+    SeededRunMetadata & {
+      kind: "stochastic";
+      status: "completed" | "partial";
+      requestedIterations: bigint;
+      completedIterations: bigint;
+      partialIterations: bigint;
+      failedIterations: bigint;
+      agentCounts: AgentCounts;
+      iterationOutcomes: readonly StochasticIterationOutcome[];
+      uncertainty: SimulationUncertainty;
+      summary: StochasticSimulationSummary;
+    }
+>;
+
+export type FailedStochasticSimulationResult = Readonly<
+  SimulationRunMetadata &
+    SeededRunMetadata & {
+      kind: "stochastic";
+      status: "failed";
+      requestedIterations: bigint;
+      completedIterations: 0n;
+      partialIterations: bigint;
+      failedIterations: bigint;
+      iterationOutcomes: readonly StochasticIterationOutcome[];
+      uncertainty: SimulationUncertainty;
+      failure: SimulationFailure;
+    }
+>;
+
+export type FailedDeterministicSimulationResult = Readonly<
   SimulationRunMetadata & {
-    kind: SimulationKind;
+    kind: "deterministic";
     status: "failed";
     failure: SimulationFailure;
   }
 >;
+
+export type FailedSimulationResult =
+  | FailedDeterministicSimulationResult
+  | FailedStochasticSimulationResult;
 
 export type SimulationResult =
   | DeterministicSimulationResult

@@ -208,29 +208,29 @@ Goal: model how agents and attack strategies interact with the compiled market.
 
 ### Simulation foundation
 
-- [ ] Define seeded random-number generation and persist the seed with every run.
-- [ ] Implement simulation ticks, observations, actions, execution order, and event recording.
-- [ ] Implement MVP agent archetypes: retail buyer, whale, sniper, momentum trader, profit taker, panic seller, and random trader.
-- [ ] Define configurable agent distributions and scenario parameters.
-- [ ] Add Monte Carlo aggregation with median, percentile, frequency, and confidence/uncertainty labeling.
-- [ ] Track graduation, drawdown, concentration, fees, time-to-migration, and price-impact metrics.
+- [x] Define versioned SplitMix64 seeded random-number generation, reject out-of-range seeds, and persist the exact seed plus algorithm id in stochastic/attack run metadata; deterministic runs remain seedless because they consume no randomness (`src/domain/seeded-random.ts`; 5 focused tests, typecheck, and formatting pass).
+- [x] Implement seeded simulation ticks, shared pre-trade observations, decisions, explicitly configured or seeded-random sequential execution, clock advancement, and event traces for actions, fills, rejections, and agent failures (`src/domain/stochastic-simulation.ts`; spec §9.2 updated; 4 focused runner tests plus typecheck and formatting pass).
+- [x] Implement all seven rule-based MVP agents with explicit behavior parameters, wallet/cost-basis tracking, balance-safe trades, and seeded stochastic choices (`src/domain/simulation-agents.ts`, `src/domain/stochastic-simulation.ts`; spec §9.1 documents their assumptions; 13 focused tests, typecheck, lint, and build pass).
+- [x] Define exact per-archetype population counts and behavior templates, deterministic generated agent IDs, and explicit seed/pool/tick/clock/execution parameters; cap synchronous MVP population at 10,000 (`src/domain/simulation-scenario.ts`; 4 focused tests, typecheck, and build pass).
+- [x] Add seeded Monte Carlo execution and nearest-rank p05/median/p95, graduation frequency, retained iteration seed/status/failure records, and transparent uncertainty labels; partial/failed runs are excluded from distributions and no summary is fabricated when all iterations fail (`src/domain/monte-carlo.ts`; spec §§9.3/20.1; 4 focused tests; full `pnpm check` passes with 196 tests and build succeeds).
+- [x] Track DBC-threshold graduation frequency, conditional time-to-migration, maximum drawdown/price impact, tracked-agent top-holder concentration, total trading-fee and creator-fee distributions (`src/domain/monte-carlo.ts`; spec §§9.3/20.1 clarify units and modeled scope; focused graduation fixture plus full `pnpm check` passes with 197 tests and build succeeds).
 
 ### Required attacks
 
-- [ ] Implement opening sniper attack.
-- [ ] Implement whale-entry attack.
-- [ ] Implement pump-and-dump attack.
-- [ ] Implement sell-cascade attack.
-- [ ] Implement fee-schedule timing attack.
-- [ ] Add attack-specific metrics: attacker PnL, victim disadvantage, price displacement, drawdown, fees, and migration effects.
-- [ ] Add `tymba attack example.json --scenario sniper`.
-- [ ] Add deterministic seeded fixtures for each attack.
+- [x] Implement opening sniper attack with a demand-gated single exit, retained per-seed partial/failure outcomes, signed PnL, late-buyer disadvantage, post-exit drawdown, and fees (`src/domain/attacks/opening-sniper.ts`; full `pnpm check` passes with 200 tests and `pnpm build` succeeds).
+- [x] Implement whale-entry attack sized from the explicit migration-quote share, with post-fill spot displacement, base acquired, average execution price, tracked-wallet concentration, retained seeded outcomes, and resource limits (`src/domain/attacks/whale-entry.ts`; full `pnpm check` passes with 203 tests and `pnpm build` succeeds).
+- [x] Implement pump-and-dump attack with an explicit buy, demand/hold-gated single exit after momentum-agent fills, attacker PnL, late-buyer loss, peak drawdown, fees, and exact quote required to recover the prior peak (`src/domain/attacks/pump-and-dump.ts`; full `pnpm check` passes with 206 tests and `pnpm build` succeeds).
+- [x] Implement sell-cascade attack with explicit profit-taker/panic-seller agents, a same-seed background-only baseline, tracked quote outflow, drawdown, pre-cascade recovery quote, and signed migration-time delta (`src/domain/attacks/sell-cascade.ts`; full `pnpm check` passes with 208 tests and `pnpm build` succeeds).
+- [x] Implement deterministic fee-schedule timing across eligible linear/exponential fee boundaries; compare identical round-trips, record every candidate, and report best clock, fee savings, and quote-PnL improvement without random-seed metadata (`src/domain/attacks/fee-schedule-timing.ts`; full `pnpm check` passes with 210 tests and `pnpm build` succeeds).
+- [x] Add and verify scenario-specific outputs for attacker PnL, buyer disadvantage/loss, price displacement, drawdown, fees, recovery demand, concentration, migration delay, and fee-schedule savings; each metric uses asset-tagged amounts, Decimal prices, or bigint basis points as applicable (`src/domain/attack-result.ts`, `src/domain/attacks/*`; full `pnpm check` passes with 210 tests and `pnpm build` succeeds).
+- [x] Add `tymba attack example.json --scenario sniper` with strict decimal-string request parsing, explicit optional pre-scenario warm-up, JSON/human reports, and clear modeled/non-deployable labeling (`src/cli/attack.ts`, `src/cli/index.ts`, `examples/demo-attack-request.json`; all five built-CLI scenario commands complete).
+- [x] Add deterministic attack fixtures with pinned seeds and output snapshots for all four stochastic attacks plus a seedless deterministic fee-schedule fixture (`src/domain/attacks/*.test.ts`, `src/domain/attacks/__snapshots__`; replay and fixture tests pass in the full 214-test suite).
 
 ### Phase gate
 
-- [ ] At least five attack scenarios run against the same compiled candidate.
-- [ ] Repeating a seeded run produces the same results.
-- [ ] Reports clearly distinguish assumptions, modeled behavior, and observed results.
+- [x] Run all five attack scenarios to completion against the same deterministic solver-generated curve-draft ID, `curve-quote-1-1-149999999998` (`src/cli/attack.test.ts` and built-CLI runs; shared explicit request and pre-scenario state; full DBC/supply validation remains pending and the candidate stays `unverified`).
+- [x] Verify a seeded attack replay produces an identical result; each stochastic attack test also pins iteration seeds and snapshots the expected metrics.
+- [x] Verify reports retain the explicit market/solver/simulation/attack and warm-up assumptions, label evidence as modeled, and separate observed run results; no report implies deployability. Final `pnpm check` passes (214 tests), and `pnpm build` succeeds.
 
 ## Phase 6 — Build the economic audit and hardening loop
 

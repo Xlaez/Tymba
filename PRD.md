@@ -72,6 +72,8 @@ Describe → Compile → Explain → Simulate → Attack → Audit → Harden �
 - Include fees, dynamic fees where supported, migration thresholds, surplus, and post-migration accounting.
 - Add stochastic agent simulations for the MVP archetypes listed in `spec.md`.
 - Store and display the random seed for reproducible demo and test runs.
+- Report nearest-rank p05/median/p95 over completed iterations only, retain failed/partial iteration seeds and statuses, and label uncertainty without implying statistical confidence intervals.
+- Implement fee-schedule timing as a deterministic sweep over fee-decay boundaries; record candidate clocks/results without inventing a random seed.
 
 ### Attack and audit
 
