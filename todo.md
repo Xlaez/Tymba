@@ -112,25 +112,26 @@ Goal: build the smallest trustworthy mathematical core.
 
 ### Tests and parity
 
-- [ ] Add known-value unit tests for every core formula.
-- [ ] Add tests for exact segment-boundary trades.
-- [ ] Add tests for trades spanning multiple segments.
-- [ ] Add tests for buys and sells with fees.
-- [ ] Add property tests for increasing liquidity reducing price movement for fixed input.
-- [ ] Add property tests for monotonic price progression and valid segment ordering.
-- [ ] Add buy-then-sell reversibility tests with documented fee and integer-rounding effects.
-- [ ] Add tests that the multi-segment total equals the sum of segment calculations.
-- [ ] Generate valid configurations and require exact local-to-SDK equality for protocol outputs.
-- [ ] Verify raw Q64.64 price boundaries pass unchanged through the pinned SDK custom-sqrt-price builder; do not assume parity with its finite-precision price convenience helper.
-- [ ] Allow at most a documented one-atomic-unit exception for a proven SDK-helper conversion boundary.
-- [ ] Test human-readable price formatting separately from protocol parity.
-- [ ] Document every intentional local-to-SDK difference and its narrow tolerance.
+- [x] Add known-value unit tests for every implemented core formula.
+- [x] Add tests for exact segment-boundary trades.
+- [x] Add tests for trades spanning multiple segments.
+- [x] Add fixed-fee buy/sell tests for quote-token and output-token fee collection.
+- [x] Add property tests for increasing liquidity reducing price movement for fixed input.
+- [x] Add property tests for monotonic price progression and valid segment ordering.
+- [x] Add buy-then-sell reversibility tests with documented fee and integer-rounding effects.
+- [x] Add tests that multi-segment totals equal the sum of individually rounded segment calculations.
+- [x] Generate SDK curve-valid configurations and require exact local-to-SDK equality for protocol outputs.
+- [x] Verify raw Q64.64 price boundaries pass unchanged through the pinned SDK custom-sqrt-price builder; do not assume parity with its finite-precision price convenience helper.
+- [x] Keep exact parity as the default; no one-atomic-unit exception is currently authorized or used.
+- [x] Test human-readable price formatting separately from SDK protocol parity.
+- [x] Document the intentional SDK convenience-helper difference and state that it receives no parity tolerance.
 
 ### Phase gate
 
-- [ ] The math package passes unit, property, and SDK parity tests.
-- [ ] Every on-chain quantity has an explicit precision and rounding policy.
-- [ ] No solver or UI work proceeds while core parity failures remain unexplained.
+- [x] The implemented Phase 2 math surface passes unit, property, and pinned-SDK parity tests.
+- [x] Every on-chain quantity computed by the implemented Phase 2 math has an explicit precision and rounding policy.
+- [x] No solver or UI work has proceeded while a core parity discrepancy remains unexplained.
+- [ ] All Phase 2 core calculations are implemented before Phase 3 begins; post-migration allocation accounting remains open.
 
 ## Phase 3 — Build the deterministic simulator and CLI
 

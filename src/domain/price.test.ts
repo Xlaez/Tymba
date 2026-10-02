@@ -62,3 +62,13 @@ describe("price and Q64.64 conversion", () => {
     expect(sqrtPriceQ64x64ToPrice(Q64_ONE, 9, 9).toString()).toBe("1");
   });
 });
+
+describe("human-readable price formatting", () => {
+  it("formats economic prices independently from SDK parity comparisons", () => {
+    const encodedBoundary = (3n * Q64_ONE) / 2n;
+    const humanPrice = sqrtPriceQ64x64ToPrice(encodedBoundary, 9, 9);
+
+    expect(humanPrice.toFixed(4)).toBe("2.2500");
+    expect(priceToSqrtPriceQ64x64(humanPrice.toString(), 9, 9)).toBe(encodedBoundary);
+  });
+});

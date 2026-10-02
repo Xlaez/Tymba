@@ -171,6 +171,17 @@ describe("base distributed across curve segments", () => {
 });
 
 describe("inverse sqrt-price calculations", () => {
+  it("produces exact known Q64.64 results for all four trade directions", () => {
+    const liquidity = 4n * Q64_ONE;
+
+    expect(sqrtPriceAfterQuoteInput(Q64_ONE, liquidity, 1n)).toBe(Q64_ONE + Q64_ONE / 4n);
+    expect(sqrtPriceAfterQuoteOutput(2n * Q64_ONE, liquidity, 1n)).toBe(
+      2n * Q64_ONE - Q64_ONE / 4n,
+    );
+    expect(sqrtPriceAfterBaseInput(Q64_ONE, liquidity, 1n)).toBe((4n * Q64_ONE + 4n) / 5n);
+    expect(sqrtPriceAfterBaseOutput(Q64_ONE, liquidity, 1n)).toBe((4n * Q64_ONE + 2n) / 3n);
+  });
+
   it("matches the SDK for quote input and base output", () => {
     const liquidity = 4n * Q64_ONE;
     const quoteInputPrice = sqrtPriceAfterQuoteInput(Q64_ONE, liquidity, 4n);
