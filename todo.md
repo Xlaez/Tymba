@@ -108,7 +108,7 @@ Goal: build the smallest trustworthy mathematical core.
 - [x] Implement sell quoting across segment boundaries.
 - [x] Implement explicit fixed-fee application and rounding behavior; scheduled/dynamic fee-rate selection remains deferred.
 - [x] Implement migration threshold price, quote progress, completion, overshoot, and verified aggregate surplus shares; exact creator/partner surplus split remains unresolved.
-- [ ] Implement post-migration allocation accounting needed by the MVP.
+- [x] Implement post-migration DAMM liquidity-unit allocation accounting with the program's exact per-bucket rounding (`src/domain/migration-allocation.ts`).
 
 ### Tests and parity
 
@@ -125,13 +125,14 @@ Goal: build the smallest trustworthy mathematical core.
 - [x] Keep exact parity as the default; no one-atomic-unit exception is currently authorized or used.
 - [x] Test human-readable price formatting separately from SDK protocol parity.
 - [x] Document the intentional SDK convenience-helper difference and state that it receives no parity tolerance.
+- [x] Verify post-migration liquidity bucket order, floors, and creator-unlocked remainder against Meteora program source; validate the six-share sum against the pinned SDK.
 
 ### Phase gate
 
 - [x] The implemented Phase 2 math surface passes unit, property, and pinned-SDK parity tests.
 - [x] Every on-chain quantity computed by the implemented Phase 2 math has an explicit precision and rounding policy.
 - [x] No solver or UI work has proceeded while a core parity discrepancy remains unexplained.
-- [ ] All Phase 2 core calculations are implemented before Phase 3 begins; post-migration allocation accounting remains open.
+- [x] All Phase 2 MVP core calculations, including post-migration liquidity allocation accounting, are implemented and verified before Phase 3 begins.
 
 ## Phase 3 — Build the deterministic simulator and CLI
 
@@ -139,29 +140,29 @@ Goal: expose the verified math through a complete in-memory pool model and the f
 
 ### Simulator
 
-- [ ] Define complete in-memory pool state.
-- [ ] Implement `quoteBuy`, `quoteSell`, `executeBuy`, and `executeSell`.
-- [ ] Track reserves, distributed base, fees, spot price, and migration progress.
-- [ ] Support trades that cross any valid number of configured segments.
-- [ ] Model migration and prevent invalid post-migration state transitions.
-- [ ] Expose deterministic metrics for each trade and the complete run.
-- [ ] Add scripted fixtures for the initial demo market.
+- [x] Define and validate the complete in-memory pool state, including exact asset scales, bounded atomic amounts, curve price bounds, supply coherence, and optional dynamic-fee state (`src/domain/pool-state-validation.ts`).
+- [x] Implement `quoteBuy`, `quoteSell`, `executeBuy`, and `executeSell`.
+- [x] Track reserves, distributed base, fees, spot price, and migration progress.
+- [x] Support trades that cross any valid number of configured segments.
+- [x] Model migration and prevent invalid post-migration state transitions.
+- [x] Expose deterministic metrics for each trade and the complete run.
+- [x] Add scripted fixtures for the initial demo market.
 
 ### CLI
 
-- [ ] Add a typed JSON input format for the initial market intent.
-- [ ] Add `tymba validate` for intent/config validation.
-- [ ] Add `tymba simulate` for deterministic scripted trades.
-- [ ] Add `tymba inspect` or equivalent output for segment and migration metrics.
-- [ ] Ensure CLI output uses plain economic language first and raw protocol values only in an advanced section.
-- [ ] Make CLI output machine-readable in addition to human-readable where practical.
+- [x] Add a typed JSON input format for the initial market intent.
+- [x] Add `tymba validate` for intent/config validation.
+- [x] Add `tymba simulate` for deterministic scripted trades.
+- [x] Add `tymba inspect` or equivalent output for segment and migration metrics.
+- [x] Ensure CLI output uses plain economic language first and raw protocol values only in an advanced section.
+- [x] Make CLI output machine-readable in addition to human-readable where practical.
 
 ### Phase gate
 
-- [ ] The CLI can load the example intent from `spec.md`.
-- [ ] A deterministic run produces stable output across repeated executions.
-- [ ] The simulator output includes capital, distribution, migration price, fees, surplus, and allocation metrics.
-- [ ] The CLI is useful without a web UI.
+- [x] The CLI can load the example intent from `spec.md`.
+- [x] A deterministic run produces stable output across repeated executions.
+- [x] The simulator output includes capital, distribution, migration price, fees, surplus, and allocation metrics.
+- [x] The CLI is useful without a web UI.
 
 ## Phase 4 — Implement the inverse curve solver
 

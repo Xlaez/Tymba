@@ -1,0 +1,31 @@
+{
+  "destination": "damm-v2",
+  "fee": {
+    "feeBps": "1000",
+    "creatorFeeShareBps": "5000"
+  },
+  "allocationIntent": {
+    "creatorLockedBps": "500",
+    "partnerLockedBps": "500",
+    "unlockedBps": "9000",
+    "lockDurationSeconds": "86400"
+  },
+  "liquidityAllocation": {
+    "creator": {
+      "unlockedBps": "2000",
+      "permanentlyLockedBps": "1000",
+      "vestingBps": "2000"
+    },
+    "partner": {
+      "unlockedBps": "2000",
+      "permanentlyLockedBps": "1000",
+      "vestingBps": "2000"
+    }
+  },
+  "migratedPoolFee": {
+    "feeBps": "100",
+    "collectFeeMode": "compounding",
+    "dynamicFeeEnabled": false,
+    "compoundingFeeBps": "500"
+  }
+}

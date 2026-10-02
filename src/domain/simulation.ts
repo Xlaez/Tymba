@@ -2,6 +2,7 @@ import type { Decimal } from "decimal.js";
 import type { AssetAmount, AssetAmountPair, PoolState } from "./pool-state.js";
 import type { VerificationStatus } from "./status.js";
 import type { TradeResult } from "./trade-result.js";
+import type { PostMigrationLiquidityAllocation } from "./migration-allocation.js";
 
 export type SimulationKind = "deterministic" | "stochastic";
 
@@ -45,6 +46,16 @@ export type DeterministicSimulationMetrics = Readonly<{
   maximumPriceImpactBps: bigint;
   maximumDrawdownBps: bigint;
   feesGenerated: AssetAmountPair;
+  migrationFees: Readonly<{
+    partner: AssetAmount<"quote">;
+    creator: AssetAmount<"quote">;
+  }>;
+  surplus: Readonly<{
+    protocol: AssetAmount<"quote">;
+    partner: AssetAmount<"quote">;
+    creator: AssetAmount<"quote">;
+  }>;
+  liquidityAllocation?: PostMigrationLiquidityAllocation;
 }>;
 
 export type DeterministicSimulationResult = Readonly<

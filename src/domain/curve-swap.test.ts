@@ -105,6 +105,19 @@ describe("buy quotes across curve segments", () => {
     expect(laterLocal.nextSqrtPriceQ64x64.toString()).toBe(laterSdk.nextSqrtPrice.toString());
     expect(() => quoteBuy(curve, 1n, 4n * Q64_ONE)).toThrow(RangeError);
   });
+
+  it("stops at an explicit migration price and leaves remaining input unfilled", () => {
+    const stopPrice = 2n * Q64_ONE;
+    const quote = quoteBuy(curve, 8n, curve.startSqrtPriceQ64x64, stopPrice);
+
+    expect(quote).toEqual({
+      requestedInputAtomic: 8n,
+      consumedInputAtomic: 2n,
+      unfilledInputAtomic: 6n,
+      outputAtomic: 1n,
+      nextSqrtPriceQ64x64: stopPrice,
+    });
+  });
 });
 
 describe("sell quotes across curve segments", () => {

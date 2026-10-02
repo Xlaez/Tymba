@@ -1,4 +1,5 @@
-import type { AssetAmount, AssetSide } from "./pool-state.js";
+import type { Decimal } from "decimal.js";
+import type { AssetAmount, AssetAmountPair, AssetSide } from "./pool-state.js";
 
 export type TradeFillStatus = "filled" | "partial";
 
@@ -6,6 +7,15 @@ export type TradeFeeAmounts = Readonly<{
   tradingFee: AssetAmount;
   protocolFee: AssetAmount;
   referralFee: AssetAmount;
+}>;
+
+export type TradeMetrics = Readonly<{
+  spotPriceBefore: Decimal;
+  spotPriceAfter: Decimal;
+  priceImpactBps: bigint;
+  migrationProgressBeforeBps: bigint;
+  migrationProgressAfterBps: bigint;
+  poolReservesAfter: AssetAmountPair;
 }>;
 
 export type TradeResultBase<
@@ -19,6 +29,7 @@ export type TradeResultBase<
   output: AssetAmount<OutputAsset>;
   nextSqrtPriceQ64x64: bigint;
   fees: TradeFeeAmounts;
+  metrics: TradeMetrics;
 }>;
 
 export type BuyResult = Readonly<

@@ -21,10 +21,14 @@ export function quoteBuy(
   curveInput: DbcCurve,
   quoteInputAtomic: bigint,
   currentSqrtPriceQ64x64: bigint = curveInput.startSqrtPriceQ64x64,
+  stopSqrtPriceQ64x64?: bigint,
 ): CurveSwapQuote {
   const curve = requireCurve(curveInput);
   validateAmount(quoteInputAtomic);
   validateCurrentPrice(curve, currentSqrtPriceQ64x64);
+  const stopPrice =
+    stopSqrtPriceQ64x64 ?? curve.segments[curve.segments.length - 1]?.upperSqrtPriceQ64x64;
+  validateStopPrice(curve, currentSqrtPriceQ64x64, stopPrice);
 
   let amountLeft = quoteInputAtomic;
   let outputAtomic = 0n;
@@ -32,12 +36,19 @@ export function quoteBuy(
 
   for (const segment of curve.segments) {
     if (amountLeft === 0n) break;
-    if (currentPrice >= segment.upperSqrtPriceQ64x64) continue;
+    const segmentUpperPrice =
+      stopPrice !== undefined && stopPrice < segment.upperSqrtPriceQ64x64
+        ? stopPrice
+        : segment.upperSqrtPriceQ64x64;
+    if (currentPrice >= segmentUpperPrice) {
+      if (currentPrice === stopPrice) break;
+      continue;
+    }
     if (currentPrice < segment.lowerSqrtPriceQ64x64) {
       throw new RangeError("Current sqrt price does not lie on the configured curve");
     }
 
-    const activeSegment = clippedSegment(segment, currentPrice, segment.upperSqrtPriceQ64x64);
+    const activeSegment = clippedSegment(segment, currentPrice, segmentUpperPrice);
     const requiredQuote = quoteRequiredForSegment(activeSegment);
     if (amountLeft < requiredQuote) {
       const nextPrice = sqrtPriceAfterQuoteInput(currentPrice, segment.liquidity, amountLeft);
@@ -50,11 +61,29 @@ export function quoteBuy(
     }
 
     outputAtomic += baseDistributedForSegment(activeSegment);
-    currentPrice = segment.upperSqrtPriceQ64x64;
+    currentPrice = segmentUpperPrice;
     amountLeft -= requiredQuote;
+    if (currentPrice === stopPrice) break;
   }
 
   return makeQuote(quoteInputAtomic, amountLeft, outputAtomic, currentPrice);
+}
+
+function validateStopPrice(
+  curve: DbcCurve,
+  currentPrice: bigint,
+  stopPrice: bigint | undefined,
+): void {
+  const lastSegment = curve.segments[curve.segments.length - 1];
+  if (
+    stopPrice === undefined ||
+    stopPrice < currentPrice ||
+    stopPrice < curve.startSqrtPriceQ64x64 ||
+    !lastSegment ||
+    stopPrice > lastSegment.upperSqrtPriceQ64x64
+  ) {
+    throw new RangeError("Buy stop sqrt price must be within the remaining configured curve");
+  }
 }
 
 export function quoteSell(

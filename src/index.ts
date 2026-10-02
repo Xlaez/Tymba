@@ -58,7 +58,7 @@ export {
   validateDbcCurveShape,
 } from "./domain/curve.js";
 export type { CurveSwapQuote } from "./domain/curve-swap.js";
-export { quoteBuy, quoteSell } from "./domain/curve-swap.js";
+export { quoteBuy as quoteCurveBuy, quoteSell as quoteCurveSell } from "./domain/curve-swap.js";
 export type {
   DeploymentApproval,
   DeploymentMismatch,
@@ -114,15 +114,45 @@ export {
   migrationSqrtPriceAtThreshold,
 } from "./domain/migration-math.js";
 export type {
+  LiquidityAllocationAmounts,
+  PostMigrationLiquidityAllocation,
+} from "./domain/migration-allocation.js";
+export {
+  calculatePostMigrationLiquidityAllocation,
+  LIQUIDITY_ALLOCATION_DENOMINATOR_BPS,
+} from "./domain/migration-allocation.js";
+export type {
   AssetAmount,
   AssetAmountPair,
   AssetSide,
   DynamicFeeState,
   EconomicLedger,
+  PoolEconomicSnapshot,
   PoolState,
   PoolSupplyState,
   SimulationClock,
 } from "./domain/pool-state.js";
+export type { PoolStateValidationResult } from "./domain/pool-state-validation.js";
+export { validatePoolState } from "./domain/pool-state-validation.js";
+export type {
+  MigrationExecutionResult,
+  MigrationSettlement,
+} from "./domain/simulator.js";
+export {
+  executeBuy,
+  executeMigration,
+  executeSell,
+  getPoolEconomicSnapshot,
+  getMigrationProgress,
+  getSpotPrice,
+  quoteBuy,
+  quoteSell,
+  runDeterministicSimulation,
+} from "./domain/simulator.js";
+export type {
+  DeterministicSimulationInput,
+  DeterministicTradeInput,
+} from "./domain/simulator.js";
 export {
   priceToSqrtPriceQ64x64,
   Q64_ONE,
@@ -170,6 +200,7 @@ export type {
   SellResult,
   TradeFeeAmounts,
   TradeFillStatus,
+  TradeMetrics,
   TradeResult,
   TradeResultBase,
 } from "./domain/trade-result.js";

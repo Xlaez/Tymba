@@ -116,4 +116,4 @@ Before handing off:
 
 ## Current repository status
 
-The workspace has a root TypeScript package, pinned pnpm lockfile, strict compiler configuration, Biome, Vitest, CI workflow, decision/protocol notes, and Git history. DBC math, solver, simulator, audit, UI, and deployment behavior are not implemented yet. Future agents must inspect the current state rather than assuming the suggested product architecture already exists.
+The workspace has a root TypeScript package, pinned pnpm lockfile, strict compiler configuration, Biome, Vitest, CI workflow, decision/protocol notes, and Git history. Phase 2 DBC math and SDK parity checks are implemented; Phase 3 includes an in-memory deterministic simulator, illustrative demo fixture, and `validate`, `simulate`, and `inspect` CLI commands with human and JSON output. The demo migration settlement remains illustrative and unverified. The inverse solver, stochastic/adversarial engine, audit implementation, UI, and deployment flow remain future work. Future agents must inspect the current state rather than assuming the suggested product architecture already exists.

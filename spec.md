@@ -633,6 +633,8 @@ Leftover receiver
 
 After DAMM v2 migration, track creator and partner liquidity allocations separately across unlocked, permanently locked, and vesting positions. Their configured allocations must sum to 100%. Current protocol constants require at least 10% locked on day one and cap lock duration at two years; enforce these through SDK/program-backed validation.
 
+For the MVP allocation ledger, the amount being divided is distributable DAMM liquidity in protocol `u128` liquidity units, not base- or quote-token atomic amounts. Match the DBC program's allocation order and rounding: independently floor partner permanently locked, partner vesting, partner unlocked, creator permanently locked, and creator vesting shares; assign all remaining liquidity units to creator unlocked. The program stores its percentage inputs as integer fields, and the pinned SDK validator checks that all six shares sum to 100%; Tymba accepts only whole percentages. Do not infer per-position token deposits from these six liquidity shares; those remain part of DAMM migration math and require separate SDK/program parity.
+
 ---
 
 # 7. Inverse DBC Solver
@@ -951,6 +953,54 @@ type TradeFeeAmounts = {
   referralFee: AssetAmount;
 };
 
+type MigrationSettlement = {
+  protocolLiquidityFee: AssetAmountPair;
+  dammLiquidity: AssetAmountPair;
+  leftoverBase: AssetAmount<"base">;
+  liquidityUnits: bigint;
+};
+
+type MigrationExecutionResult = {
+  state: PoolState;
+  liquidityAllocation: {
+    distributableLiquidity: bigint;
+    creator: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+    partner: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+  };
+  verificationStatus: VerificationStatus;
+};
+
+type PoolEconomicSnapshot = {
+  poolReserves: AssetAmountPair;
+  baseDistributed: AssetAmount<"base">;
+  feesGenerated: AssetAmountPair;
+  spotPrice: Decimal;
+  migrationProgressBps: bigint;
+  migrationProgress: MigrationProgress;
+};
+
+type TradeMetrics = {
+  spotPriceBefore: Decimal;
+  spotPriceAfter: Decimal;
+  priceImpactBps: bigint;
+  migrationProgressBeforeBps: bigint;
+  migrationProgressAfterBps: bigint;
+  poolReservesAfter: AssetAmountPair;
+};
+
+type DeterministicTradeInput = {
+  direction: "buy" | "sell";
+  inputAtomic: bigint;
+  clock?: SimulationClock;
+};
+
+type DeterministicSimulationInput = {
+  id: string;
+  initialState: PoolState;
+  trades: readonly DeterministicTradeInput[];
+  migrationSettlement?: MigrationSettlement;
+};
+
 type TradeResultBase<
   InputAsset extends AssetSide = AssetSide,
   OutputAsset extends AssetSide = AssetSide,
@@ -962,6 +1012,7 @@ type TradeResultBase<
   output: AssetAmount<OutputAsset>;
   nextSqrtPriceQ64x64: bigint;
   fees: TradeFeeAmounts;
+  metrics: TradeMetrics;
 };
 
 type BuyResult = TradeResultBase<"quote", "base"> & {
@@ -980,11 +1031,20 @@ interface DbcSimulator {
 
   executeBuy(inputQuote: bigint, state: PoolState): PoolState;
   executeSell(inputBase: bigint, state: PoolState): PoolState;
+  executeMigration(state: PoolState, settlement: MigrationSettlement): MigrationExecutionResult;
 
   getSpotPrice(state: PoolState): Decimal;
   getMigrationProgress(state: PoolState): Decimal;
+  getPoolEconomicSnapshot(state: PoolState): PoolEconomicSnapshot;
+  runDeterministicSimulation(
+    input: DeterministicSimulationInput,
+  ): DeterministicSimulationResult;
 }
 ```
+
+`MigrationSettlement` supplies the protocol-liquidity fee, DAMM v2 base/quote deposits, fixed-supply leftover base, and migration liquidity units for the transition. The simulator checks exact asset-scale and reserve conservation, computes the configured migration fee from the documented threshold formula, and allocates the supplied liquidity units across the six configured buckets. Until protocol fee and DAMM deposit rounding have exact SDK/program parity, `executeMigration` returns `verificationStatus: "unverified"`; caller-supplied settlement values are modeled inputs, not protocol guarantees.
+
+Each trade quote includes decimal spot prices before/after execution, absolute price impact in basis points, migration progress before/after, and projected post-trade reserves. `getMigrationProgress` returns a ratio from 0 to 1. A deterministic run requires an explicit stable id, initial state, ordered trade inputs, and optional per-trade clocks; it uses no wall-clock values or random seed. Run `quoteAccumulated` is the initial quote reserve plus net quote-reserve changes across the scripted trades, retained as a run metric even if migration later moves that reserve into DAMM v2.
 
 `PoolState` is a pure in-memory DBC simulation snapshot. It contains no RPC, wallet, signer, or transaction state. Reserves and accounting values use `CurrencyAmount`; current and volatility sqrt prices remain encoded Q64.64 `bigint` values. `PoolSupplyState` records the resolved supply mode and base supply/distribution metrics; the exact accounting boundary for base distribution must be established by parity tests. The simulation clock carries both slot and Unix timestamp, while `activationPoint` and `activationType` preserve the selected config's scheduler clock. `migrationProgress` is a lifecycle state, separate from the continuous progress ratio returned by the simulator.
 
@@ -1933,6 +1993,12 @@ type SimulationFailure = {
   message: string;
 };
 
+type PostMigrationLiquidityAllocation = {
+  distributableLiquidity: bigint;
+  creator: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+  partner: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+};
+
 type DeterministicSimulationMetrics = {
   migrated: boolean;
   finalSpotPrice: Decimal;
@@ -1944,6 +2010,16 @@ type DeterministicSimulationMetrics = {
   maximumPriceImpactBps: bigint;
   maximumDrawdownBps: bigint;
   feesGenerated: AssetAmountPair;
+  migrationFees: {
+    partner: AssetAmount<"quote">;
+    creator: AssetAmount<"quote">;
+  };
+  surplus: {
+    protocol: AssetAmount<"quote">;
+    partner: AssetAmount<"quote">;
+    creator: AssetAmount<"quote">;
+  };
+  liquidityAllocation?: PostMigrationLiquidityAllocation;
 };
 
 type DeterministicSimulationResult = SimulationRunMetadata & {

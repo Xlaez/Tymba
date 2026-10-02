@@ -1,0 +1,26 @@
+{
+  "base": {
+    "kind": "linear",
+    "startingFeeBps": "1000",
+    "endingFeeBps": "100",
+    "periodCount": "5",
+    "periodFrequency": "60",
+    "clock": "timestamp"
+  },
+  "dynamic": {
+    "binStepBps": "1",
+    "filterPeriodSeconds": "10",
+    "decayPeriodSeconds": "120",
+    "reductionFactorBps": "5000",
+    "maxVolatilityAccumulator": "100000",
+    "variableFeeControl": "1000"
+  },
+  "collectFeeMode": "quote",
+  "creatorTradingFeeShareBps": "2000",
+  "migratedPool": {
+    "feeBps": "100",
+    "collectFeeMode": "compounding",
+    "dynamicFeeEnabled": false,
+    "compoundingFeeBps": "500"
+  }
+}

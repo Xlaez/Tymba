@@ -2,6 +2,7 @@ import type { CurrencyAmount } from "./currency-amount.js";
 import type { DbcCurve } from "./curve.js";
 import type { FeeClock, FeeConfiguration } from "./fees.js";
 import type { MigrationConfiguration, MigrationProgress } from "./migration.js";
+import type { Decimal } from "decimal.js";
 
 export type AssetAmountPair = Readonly<{
   base: CurrencyAmount;
@@ -62,6 +63,15 @@ export type PoolState = Readonly<{
   migrationProgress: MigrationProgress;
   hasSwapped: boolean;
   dynamicFeeState?: DynamicFeeState;
+}>;
+
+export type PoolEconomicSnapshot = Readonly<{
+  poolReserves: AssetAmountPair;
+  baseDistributed: AssetAmount<"base">;
+  feesGenerated: AssetAmountPair;
+  spotPrice: Decimal;
+  migrationProgressBps: bigint;
+  migrationProgress: MigrationProgress;
 }>;
 
 export type AssetSide = "base" | "quote";

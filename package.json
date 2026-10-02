@@ -9,13 +9,15 @@
     "pnpm": "10.18.3"
   },
   "scripts": {
+    "build": "tsc --project tsconfig.build.json",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test"
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "tymba": "pnpm build && node dist/src/cli/index.js"
   },
   "dependencies": {
     "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.13",

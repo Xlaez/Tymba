@@ -1,0 +1,30 @@
+{
+  "assets": {
+    "base": {
+      "symbol": "MKT",
+      "decimals": 9
+    },
+    "quote": {
+      "symbol": "USDC",
+      "decimals": 6
+    }
+  },
+  "supply": {
+    "totalBase": "1000000000"
+  },
+  "pricing": {
+    "startFdv": "200000",
+    "migrationFdv": "2000000"
+  },
+  "targets": {
+    "quoteToMigration": "150000",
+    "baseDistributionPct": "25"
+  },
+  "preferences": {
+    "launchProfile": "balanced",
+    "sniperResistance": "high"
+  },
+  "solver": {
+    "maxSegments": 3
+  }
+}
