@@ -2,6 +2,7 @@
 
 ## Read first
 
+DO not use comments in codes unless very neccessary.
 This repository is currently specification-first. Before proposing, implementing, reviewing, or testing any product change:
 
 1. Read the root [`spec.md`](./spec.md) in full.
@@ -22,6 +23,8 @@ desired market behavior → constraints → valid DBC configuration
 ```
 
 It is market-design infrastructure, not a generic launchpad, trading terminal, AI trading bot, or guarantee of fundraising, safety, or manipulation resistance.
+
+Use Tymba as the product name in all project artifacts.
 
 ## Source-of-truth rules
 
@@ -45,6 +48,11 @@ It is market-design infrastructure, not a generic launchpad, trading terminal, A
 - Keep domain calculations independent from UI, persistence, AI, and network side effects.
 - Use exact integer or documented fixed-point arithmetic for on-chain quantities. Do not use casual floating-point arithmetic for values that affect transactions or parity checks.
 - Make precision, scale, rounding direction, fee treatment, and overflow behavior explicit.
+- Keep continuous economic optimization separate from DBC protocol math. Quantize candidates before simulation; user-visible metrics must come from the quantized candidate.
+- Use `bigint` for atomic token amounts in domain code. Do not convert atomic values through JavaScript `number`; adapt to SDK-specific BN types only at the Meteora boundary when needed.
+- Require exact SDK/program parity for protocol outputs by default. Any tolerance must be isolated to a specific helper and justified with evidence; its maximum is one atomic unit.
+- Treat the demo as 9-decimal base and 6-decimal USD-stable quote, while keeping decimal counts metadata-driven.
+- Keep the 16-entry public-builder curve limit distinct from the 20-entry legacy stored-config capacity. In the pinned SDK, one curve entry encodes one segment's upper sqrt-price boundary and liquidity, so 16 entries allow 16 segments and 17 sqrt-price boundaries including the start.
 - Preserve reproducibility: solver and simulation results must be deterministic for the same inputs, SDK behavior, and random seed.
 - Keep protocol adapters isolated so the simulator can be tested independently and SDK/devnet behavior can be compared explicitly.
 - Prefer a small, reliable TypeScript implementation for the MVP. Add Rust services, Redis/BullMQ, worker pools, or distributed execution only when measured requirements justify them.
@@ -108,4 +116,4 @@ Before handing off:
 
 ## Current repository status
 
-The initial workspace contains `spec.md` and project guidance documents but no implementation, package manager, test suite, or initialized Git repository. Future agents should inspect this state rather than assuming the suggested architecture already exists.
+The workspace has a root TypeScript package, pinned pnpm lockfile, strict compiler configuration, Biome, Vitest, CI workflow, decision/protocol notes, and Git history. DBC math, solver, simulator, audit, UI, and deployment behavior are not implemented yet. Future agents must inspect the current state rather than assuming the suggested product architecture already exists.

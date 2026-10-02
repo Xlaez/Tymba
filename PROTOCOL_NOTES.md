@@ -1,0 +1,202 @@
+# Meteora DBC Protocol Notes
+
+Research snapshot: 2026-10-02. These notes capture the implementation boundary for Tymba. The official SDK and deployed program remain authoritative; the notes do not replace parity testing against the pinned SDK.
+
+## Verified from current official sources
+
+| Area | Current evidence | Tymba implication |
+| --- | --- | --- |
+| SDK release | Meteora's SDK changelog lists `1.5.13` dated 2026-09-24. Its change allows arbitrary quote-mint decimals while retaining base-token decimals from 6 through 9. | Pin `@meteora-ag/dynamic-bonding-curve-sdk` to exactly `1.5.13`; represent decimals as metadata. Keep actual quote validation at the adapter boundary. |
+| Program identity | Meteora documents the same DBC program ID on mainnet and devnet and publishes its pool authority. DAMM v2 likewise publishes the same mainnet/devnet ID and its pool authority. | Store IDs centrally and check integration configuration against the selected network. |
+| Curve entries, boundaries, and segments | The pinned SDK defines `MAX_CURVE_POINT = 16`; `validateCurve` applies that cap to `config.curve`, whose entries are `{ sqrtPrice: BN, liquidity: BN }`. `buildCurveWithCustomSqrtPrices` emits one curve entry per interval using the interval's upper boundary, so N sqrt-price boundaries produce N−1 entries/segments. The builder JSDoc describes up to 16 segments. The on-chain config separately reserves `MAX_CURVE_POINT_CONFIG = 20` stored entries for compatibility. | Generated configs may contain up to 16 curve entries/segments and therefore up to 17 sqrt-price boundaries including the start. Keep the separate 20-entry legacy capacity for any future import/audit path. |
+| Encoded price | Meteora account docs identify `sqrt_start_price`, curve entries, and current `sqrt_price` as Q64.64 values; current sqrt price is represented as `u128`. | Keep human price inputs in the economic layer. Quantize to protocol integer encoding at a dedicated boundary. |
+| Lock constraints | Current account docs list a minimum locked liquidity of 1,000 bps and maximum DAMM v2 lock duration of 63,072,000 seconds (two years). | Validate the documented minimum and maximum through SDK/program-backed rules; model creator and partner allocations separately. |
+| Surplus and migration fee constants | Current DBC program source assigns 80% of quote surplus to partner/creator together and the remainder to protocol; it defines a 20 bps (0.2%) protocol liquidity-migration fee. The 80% is split between partner and creator by configuration. | Keep surplus separate from migration liquidity and fees. Reproduce exact rounding and base/quote application in protocol parity tests. |
+| Migration target | Meteora's DBC README says new configs/pools use DAMM v2; DAMM v1 is deprecated for new configurations while existing pools retain compatibility. | New Tymba devnet deployments target DAMM v2. Keep legacy migration parsing only if required by audit scope. |
+| Activation clock and pool state | Current DBC account docs identify activation type as slot or timestamp, and the pool stores `activation_point`, a volatility tracker, and current sqrt price. | Simulation state needs both slot and timestamp; dynamic fees are stateful. |
+| Pool state and swap results | The pinned SDK IDL stores reserves as `u64`, current sqrt price as `u128`, activation point as `u64`, migration/claim flags, base/quote fee counters, and a volatility tracker. It declares both `SwapResult` and `SwapResult2`. | Keep Tymba's pure simulation state separate from the complete on-chain account. Compare the original SDK result fields in parity tests before mapping them to normalized trade results; do not assume reported fee categories are additive. |
+
+## Devnet quote-mint candidate (not yet end-to-end verified)
+
+- **Leading candidate:** Circle-issued Devnet USDC, mint `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`. Circle's official USDC address page lists this as the Solana Devnet test token and links to Solana Explorer; Circle's developer reference lists USDC at six decimals and links to Circle's testnet faucet. Circle explicitly states testnet USDC has no financial value and is not backed by real US dollars. This matches the demo's stable-value semantics better than an arbitrary project-created mint, while remaining test-only.
+- **Protocol compatibility evidence:** Meteora's DBC program docs describe a customizable quote mint; DAMM v2 migration configs use `CreatePoolWithoutMintValidation`, and the SDK changelog describes migration-test coverage for Token-2022 quote mints requiring a DBC token badge. Meteora documents its Manual Migrator as supporting Devnet and DAMM v2. This makes quote-mint incompatibility less likely, but is not proof that this exact mint has completed the full flow.
+- **Not verified yet:** this environment could not resolve `api.devnet.solana.com` for a read-only `getAccountInfo` request. We did not confirm live mint owner/decimals/authority, test Circle faucet availability, create a DBC config/pool, trade to migration, or migrate a pool using this mint. Meteora's automated keeper support for this mint is also not established; a manually triggered SDK migration and automatic migration are separate behaviors.
+- **Gate to close:** first perform read-only finalized RPC checks of mint existence, token program, decimals, and relevant account state; then run isolated DBC quote/config preflight. Close the full-flow decision only after an explicitly approved devnet integration run creates the config/pool, advances it to the migration threshold, migrates to DAMM v2, and verifies both sides' resulting pool/mint state. No chain writes were performed in this research step.
+
+Sources: [Circle USDC contract addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses), [Circle USDC six-decimal reference](https://github.com/circlefin/skills/blob/master/plugins/circle/skills/use-usdc/SKILL.md), [Circle testnet faucet](https://faucet.circle.com/), [Meteora DBC program source](https://github.com/MeteoraAg/dynamic-bonding-curve), [Meteora DBC SDK changelog](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk/blob/main/packages/dynamic-bonding-curve/CHANGELOG.md), and [Meteora DBC SDK README/migration flow](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk/blob/main/packages/dynamic-bonding-curve/README.md).
+
+## Verified against the pinned SDK declarations
+
+The installed `@meteora-ag/dynamic-bonding-curve-sdk@1.5.13` declaration file (`node_modules/@meteora-ag/dynamic-bonding-curve-sdk/dist/index.d.ts`) confirms these SDK-facing contracts:
+
+- `LiquidityDistributionParameters` and the stored config entry both contain `sqrtPrice: BN` and `liquidity: BN`.
+- `VirtualPool` wraps the IDL `PoolState`; it stores base/quote reserves, current sqrt price, activation point, migration progress and claim flags, protocol/partner/creator fee counters, migration-fee counters, and a volatility tracker. The account layout is a protocol snapshot, not Tymba's in-memory simulation contract.
+- `SwapResult` contains actual input amount, output amount, next sqrt price, trading fee, protocol fee, and referral fee. `SwapQuoteResult` adds a minimum output amount.
+- `SwapResult2` contains included-fee and excluded-fee input amounts, amount left, output amount, next sqrt price, trading fee, protocol fee, and referral fee. `SwapQuote2Result` may add minimum output and maximum input amounts.
+- `getSqrtPriceFromPrice(price, tokenADecimal, tokenBDecimal)` documents the relationship `price = (sqrtPrice >> 64)^2 * 10^(tokenADecimal - tokenBDecimal)`; `getPriceFromSqrtPrice` accepts base and quote decimals for the inverse conversion. The SDK also exposes `createSqrtPrices` with base/quote decimal arguments.
+- `buildCurveWithCustomSqrtPrices` accepts ascending sqrt-price boundaries from start through migration. Its implementation maps each interval to one curve entry whose `sqrtPrice` is the interval's upper boundary and whose liquidity is the corresponding weight. Seventeen boundaries therefore produce sixteen curve entries/segments, matching the builder JSDoc and the public curve-array cap.
+- `validateCurve` validates entries shaped as `{ sqrtPrice: BN, liquidity: BN }` against the start sqrt price.
+- The SDK exposes amount-delta helpers with explicit rounding-direction parameters and swap-price helpers, but declarations alone do not establish all on-chain rounding behavior or prove local-to-program parity.
+
+These declarations are sufficient to define the adapter-facing shape and the point/segment convention. They are not sufficient to close exact integer precision, overflow, fee sequencing, swap-direction rounding, or migration behavior; those remain gated on implementation-level SDK/program comparisons and tests.
+
+### Price conversion helper precision
+
+The pinned SDK (`1.5.13`) implements `getSqrtPriceFromPrice` as `floor(sqrt(price / 10^(baseDecimals - quoteDecimals)) * 2^64)` with Decimal.js's default precision. The matching decoder squares the encoded value and applies the inverse decimal scale. Exact rational Q64.64 encoding matches the SDK helper for the demo's 9/6-decimal examples (`0.0002` and `0.002`), but finite Decimal precision diverges for some other supported combinations: with base 6, quote 9, and price `1`, exact encoding is `583337266871351588485` while the pinned helper returns `583337266871351588490`; at price `100000000` the difference is 42,054 Q64.64 units.
+
+Tymba's domain converter follows the SDK-documented equation using exact decimal rationals and integer square root with floor rounding. This is a deliberate precision correction to the convenience helper, not a claim that the helper itself is exact. The adapter should pass the pre-quantized raw boundaries to `buildCurveWithCustomSqrtPrices` and validate the resulting candidate; never route prices or Q64.64 values through JavaScript `number`. Keep this example as a version-pinned regression case and revisit it on SDK upgrades.
+
+## Domain configuration validation boundary
+
+The pure domain configuration validators enforce supported representation and basic bounds before compilation, but do not replace `validateConfigParameters` from the pinned SDK. The SDK validator additionally checks the assembled SDK candidate and vesting schedule; its result is not evidence of Tymba math parity.
+
+- Base fees are 25–9,900 bps. Scheduled period count is `u16`, period frequency is `u64`, and Tymba accepts only strictly declining schedules. Dynamic-fee bin step is exactly 1 bp, filter period is less than decay period, reduction factor is at most 10,000 bps, and variable-fee control and maximum volatility accumulator are each `u24`-bounded.
+- SDK fee-share and liquidity percentages are whole percentages, so their Tymba basis-point representations must be divisible by 100. Migration fee is a whole percentage from 0–99%; creator share is 0–100%, and must be zero for a zero migration fee. Migrated-pool fee is 10–1,000 bps; compounding fee is 1–10,000 bps only in compounding mode.
+- The six DAMM v2 partner/creator allocation buckets must sum to 10,000 bps. Lock duration cannot exceed 63,072,000 seconds. The domain allocation type has no vesting schedule fields, so its checks cannot prove the SDK requirement that at least 1,000 bps remains locked one day after migration. The adapter must call `validateMinimumLockedLiquidity` on the complete SDK schedule and run full `validateConfigParameters` before accepting a compiled candidate.
+
+These bounds are version-specific to `@meteora-ag/dynamic-bonding-curve-sdk@1.5.13`; SDK upgrades require reviewing its validators and revisiting these domain constraints.
+
+## Token-2022 and transfer-hook boundary
+
+Transfer hooks are explicitly outside MVP core. The pinned SDK and deployed DBC support Token-2022 paths, but support is extension- and instruction-specific; do not treat “Token-2022 supported” as support for every Token-2022 extension. This research does not make a product decision to support arbitrary Token-2022 base or quote mints.
+
+- **Token program versus hook:** SDK `TokenType` distinguishes `SPLToken` from `Token2022`. A Token-2022 base mint without a transfer hook is a separate case from a DBC transfer-hook pool. The protocol also distinguishes `VirtualPool` from `TransferHookPool`; hook pools have their own config/pool initialization instructions and account discriminator. Base-token decimals remain constrained to 6–9.
+- **Quote-mint badges:** `tokenBadge` is an operator-managed allowlist account for a quote mint that is not permissionless-supported (notably some Token-2022 mints with extra extensions). SDK exposes `deriveTokenBadgeAddress`, `getTokenBadgeRemainingAccounts`, and `state.getTokenBadge`; config/pool creation accepts an optional badge. Do not assume Tymba can create or authorize badges—the operator controls them. This is separate from transfer-hook support on the launched base mint.
+- **Transfer-hook setup:** partner config and creator pool creation use explicit `*WithTransferHook` methods and carry the hook program. SDK validators check that the hook program is not a reserved/default program and can asynchronously verify it resolves to an executable account. Hook-aware pool initialization is distinct from normal Token-2022 initialization.
+- **Hook-aware lifecycle calls:** SDK 1.5.13 provides hook-aware config/pool/first-buy transaction builders, `pool.swap2WithTransferHook`, and hook-specific partner/creator trading-fee claim methods (`claimPartnerTradingFee2` / `claimCreatorTradingFee2`). Transfer-hook swap instructions require hook accounts/remaining-account metadata. `StateService` reads both standard and transfer-hook config/pool account variants. The SDK changelog records local test coverage for hook config creation, pool creation, swaps, first buys, and fee claims; this is not by itself devnet parity evidence.
+- **Mint authority and migration:** the DBC IDL says the base mint must be writable during a hook swap so the hook can be revoked after the last swap. DAMM v2's changelog says permissionless support for a Token-2022 transfer-hook mint requires both the transfer-hook program and transfer-hook authority to have been revoked. Therefore, hook migrations depend on the exact hook-revocation lifecycle and final mint state; test those against the pinned DBC and deployed DAMM v2 before claiming support. Token-2022 wrapped SOL is explicitly rejected by the current DAMM v2 permission bypass.
+- **Extension limits:** these sources establish the listed paths, not general support for transfer-fee, confidential-transfer, non-transferable, pausable, or other extensions in every DBC instruction. Validate each future extension against SDK types/source and the exact deployed programs. The initial demo should stay on the selected plain SPL quote mint and ordinary SPL base path; accepting Token-2022 base/quote mints needs an explicit scope decision, while transfer-hook configs remain deferred.
+
+**Why hooks remain outside MVP core:** they introduce a second account/config variant, an external executable program and extra accounts on swaps/claims, badge/authority dependencies in some quote-mint cases, and a migration-time hook-revocation condition. This adds operational and compatibility branches without being needed for the product's first protocol-valid curve and risk-audit demo. Spec §15 already marks transfer hooks advanced/deferred; revisit only after the plain-SPL devnet lifecycle is reliable.
+
+## Supply, surplus, migration, and post-migration accounting
+
+Behavior confirmed from current official Meteora DBC documentation and cross-checked against the pinned SDK's exported types/helpers (`1.5.13`):
+
+- **Supply modes:** DBC supports dynamic and fixed supply. Dynamic initial base supply is derived from the curve swap-base requirement with a 25% buffer, the migration base threshold, and locked-vesting requirements. Fixed supply sets explicit pre- and post-migration amounts; the pre-migration amount must cover the buffered requirement and a non-default leftover receiver is required. SDK helpers include `getSwapAmountWithBuffer`, `getTotalTokenSupply`, `getTotalSupplyFromCurve`, `getTokenomics`, and `validateTokenSupply`.
+- **Surplus:** surplus is quote reserve above the migration quote threshold after the curve-completing swap. It is distinct from trading and migration fees. Meteora documents the combined partner/creator allocation as `floor(totalSurplus * 80%)`, with the remainder protocol surplus; the combined share is split using the configured creator trading-fee percentage, with partner receiving the remainder. Surplus claims are available after curve completion, before migration, and each recipient has a one-time withdrawal flag.
+- **Fixed-supply leftover:** leftover is a base-token balance, not quote surplus. It is calculated from the remaining base vault amount after excluding protocol/trading base fees and the protocol migration base fee. Withdrawal requires migration progress `CreatedPool`, sends to the configured leftover receiver, and is one-time. Do not estimate it as initial supply minus base sold without reproducing vault and fee accounting.
+- **Migration trigger and overshoot:** the bonding curve completes when quote reserve reaches or exceeds the configured migration quote threshold. The final transaction may leave quote reserve above the threshold; that excess is surplus. Curve completion makes migration eligible but is not identical to the migrated DAMM pool being created; migration can pass through a locked-vesting state.
+- **Configurable migration fee:** this is separate from the protocol liquidity migration fee. The quote amount deposited toward migration is documented as `ceil(threshold * (100 - migrationFeePercent) / 100)`; the configurable migration fee is the threshold less that amount. It is split between creator and partner according to the creator migration-fee percentage, with partner receiving the remainder. Partner/creator migration-fee withdrawals become available after curve completion.
+- **Protocol liquidity migration fee:** current docs and SDK constants identify a fixed 0.2% fee that reduces both base and quote amounts deposited to migrated liquidity. The pool records protocol base and quote migration-fee amounts. Exact source-side rounding and the exact calculation basis remain to be proven by SDK/program parity tests; do not reuse a simple percentage formula as protocol truth yet.
+- **DAMM v2 allocation:** six partner/creator × unlocked/permanently locked/vesting portions must total 100%. Meteora requires at least 10% still locked one day after migration; vesting/lock duration is capped at two years. DAMM v2 migration creates position NFTs, then applies locks/vesting and transfers ownership. Exact proportional allocation rounding and resulting atomic token amounts still require parity tests.
+- **Migration state:** distinguish curve-complete (`PostBondingCurve`), vesting/locker setup (`LockedVesting` where applicable), and migrated pool created (`CreatedPool`). Surplus and migration-fee claim availability follows curve completion; leftover withdrawal waits for `CreatedPool`.
+
+**Accounting boundary for implementation:** keep separate ledgers for base/quote reserves; protocol, partner, and creator trading fees on each token side; protocol/partner/creator quote surplus; partner/creator configurable migration fees; protocol base/quote liquidity migration fees; DAMM v2 base/quote deposits and allocation buckets; and fixed-supply base leftover. Move value between ledgers only at the matching protocol transition.
+
+**Still requires exact verification before treating outputs as protocol-authoritative:** fee/amount arithmetic widths on-chain; surplus creator split rounding; final-swap reserve/fee sequencing; migration fee and protocol fee source amounts and rounding; exact fixed-supply validation inequalities; DAMM position amount allocation/rounding; and deployed-program parity for every helper. These are documented lifecycle semantics, not a substitute for those tests.
+
+## Configuration mutability and authority boundaries
+
+For the pinned `@meteora-ag/dynamic-bonding-curve-sdk@1.5.13` IDL and current Meteora instruction/permission docs:
+
+- **DBC launch config:** `create_config` / `create_config_with_transfer_hook` create the reusable config. The pinned IDL exposes no `update_config` or `update_pool_config` instruction, and Meteora's current instruction list exposes no config mutation path. Treat the `PoolConfig` launch fields as immutable after creation: quote mint, fee claimer, leftover receiver, curve, base/dynamic fee parameters, activation type, supply settings, migration threshold/fees, liquidity split/vesting, token settings, and migrated-pool settings. To change these values, create a new config; it affects future pools only.
+- **Live pool creator:** `transfer_pool_creator` is the explicit mutable identity operation. It requires the current creator to sign and transfers creator rights and creator fee-claim authority to the new address. It does not change the config's fee claimer, leftover receiver, curve, or economic parameters.
+- **Token metadata/mint authorities:** `tokenUpdateAuthority` is a config choice applied to the launched token. Documented options assign metadata update authority to creator, make metadata immutable, or assign it to partner. Creator/partner mint-authority variants are supported only for Token-2022 transfer-hook configs; standard configs reject them. These are token-mint authorities, not authorities to mutate `PoolConfig`.
+- **Claim/control permissions:** the config's fixed `fee_claimer` controls partner fee, surplus, migration-fee, and pool-creation-fee claims; the current live pool creator controls creator claims. Protocol claims use the protocol fee authority. Leftover withdrawal is permissionless after migration, but can only send to the config's fixed `leftover_receiver`.
+- **State that changes without config mutation:** swaps change reserves, current price, fee balances, and volatility tracker; protocol instructions advance migration/claim flags and state. Treat these as live `VirtualPool` state transitions, not mutable launch parameters.
+- **Partner/pool display metadata:** the SDK exposes create operations for partner and virtual-pool metadata but no corresponding update operation in its current DBC instruction surface. Do not promise editability in Tymba absent evidence from a future program version.
+
+This conclusion is version-scoped: re-check the deployed program IDL and current program instructions before any future feature promises config editing or authority rotation.
+
+## Fee schedules and dynamic-fee state
+
+Behavior confirmed from current Meteora DBC fee documentation, the deployed-program source, and the pinned SDK (`1.5.13`):
+
+- **Fee composition and scale:** the active base fee is always present; optional dynamic fee is added, and total fee numerator is capped at `990,000,000` over the DBC denominator `1,000,000,000` (99%). The protocol/partner/creator/referral split and fee-on-input/output treatment remain separate accounting steps.
+- **Fixed scheduler:** a fixed base fee is represented by the scheduler with period frequency, number of periods, and reduction factor all zero; it returns the cliff fee.
+- **Linear scheduler:** compute elapsed periods as integer division `(currentPoint - activationPoint) / periodFrequency`, cap periods at the configured number, then subtract `period * reductionFactor` from the cliff fee numerator.
+- **Exponential scheduler:** use the same elapsed-period and cap logic. The SDK computes the per-period reduction in Q64 fixed point and raises that factor to the period using integer math; a floating-point exponential is not an acceptable parity implementation.
+- **Schedule clock:** `ActivationType` is `Slot` or `Timestamp`. The current point and activation point supplied to the scheduler are in the selected clock's units; period frequency must therefore be interpreted in slots or seconds accordingly. For newly created configs, the SDK changelog says rate-limiter mode is rejected/deprecated; preserve legacy quoting only if the MVP later imports existing pools.
+- **Dynamic fee inputs:** `DynamicFeeConfig` includes bin step, filter/decay periods, reduction factor, maximum volatility accumulator, and variable fee control. The current SDK validator requires bin step and its encoded Q128 value to equal the supported default (1 bps), `filterPeriod < decayPeriod`, reduction factor no greater than 10,000, and the two `u24`-bounded parameters within range.
+- **Dynamic fee amount:** `ceil(((volatilityAccumulator * binStep)^2 * variableFeeControl) / 100,000,000,000)`, implemented with integer operations and rounding offset `99,999,999,999`; add it to the base fee, then cap the total fee numerator at 990,000,000.
+- **Dynamic state clock and update order:** dynamic reference decay uses `current_timestamp` (Unix seconds), independently of whether the base scheduler uses slots or timestamps. Before a swap, if elapsed time since the last price-bin-crossing update is at least `filterPeriod`, reset the sqrt-price reference to the current price. If elapsed is less than `decayPeriod`, set the volatility reference to `floor(volatilityAccumulator * reductionFactor / 10,000)`; otherwise reset the volatility reference to zero. After the swap, compute movement in price bins from the reference sqrt price, set the accumulator to `min(volatilityReference + deltaBins * 10,000, maxVolatilityAccumulator)`, and update `lastUpdateTimestamp` only when the swap crossed a price bin.
+- **Builder helper caveat:** the SDK's `getDynamicFeeParams`/curve-builder helper applies a helper convention for its generated parameters (docs describe max dynamic fee up to 20% of the base fee). This is not a universal protocol rule; custom values are validated by protocol constraints and the total-fee cap.
+
+Keep slot and Unix timestamp in simulator state even when a selected config uses only one for the base scheduler. Scheduler and dynamic-fee rate selection, timestamp rollover/clock assumptions, price-bin movement, reset/decay boundaries, and complete swap-with-fees sequencing remain unimplemented and require SDK/program parity before use.
+
+## Phase 2 pure math implementation evidence
+
+The root TypeScript domain now contains `segment-math.ts`, `curve-swap.ts`, `fee-math.ts`, and `migration-math.ts`. Tests compare segment input/output deltas, partial and multi-segment buy/sell quotes, reverse sqrt-price operations, fixed-rate fee amount/split rounding, and migration-threshold price against the pinned SDK 1.5.13 helpers. These are local deterministic-math parity tests; they do not establish devnet or full transaction parity.
+
+Fee helpers accept an already-resolved fee numerator. Fixed-fee basis-point conversion and SDK amount/split rounding are covered; scheduled and dynamic fee-rate selection, creator/partner trading-fee accounting, and applying fees around a complete buy/sell quote remain separate work. Migration accounting accepts the quote reserve after the caller's trade/accounting path, caps progress at 100%, and reports quote overshoot. Its surplus split returns only the documented aggregate partner/creator 80% floor and protocol remainder; it deliberately does not divide the aggregate between creator and partner because that split's exact rounding remains unverified. Migration-fee and protocol-liquidity-fee calculations are not included.
+
+## Pinned SDK adapter boundary
+
+The installed `@meteora-ag/dynamic-bonding-curve-sdk@1.5.13` declarations divide naturally into local calculations, RPC-backed state access, and transaction construction. Keep these behind a Tymba protocol adapter so domain and solver code do not depend directly on SDK objects, Solana `Connection`, `PublicKey`, or transaction types.
+
+- **Curve/config candidate construction (local):** `buildCurve`, `buildCurveWithMarketCap`, `buildCurveWithTwoSegments`, `buildCurveWithMidPrice`, `buildCurveWithLiquidityWeights`, and `buildCurveWithCustomSqrtPrices` return `ConfigParameters`. These are candidate/config parameter builders, not config-creation transactions. Accept Tymba domain values at the adapter edge, convert to the SDK's required types, and return a normalized candidate plus any diagnostics needed by the caller.
+- **Validation (local):** `validateConfigParameters` checks a candidate and throws the first actionable validation error. Specialized validators include `validateCurve`, `validatePoolFees`, `validateTokenSupply`, `validateLPPercentages`, `validateMinimumLockedLiquidity`, `validateDynamicFee`, `validateMigrationFee`, `validateMigratedPoolFee`, `validateQuoteMintBasic`, and `validateActivationType`. Wrap thrown SDK errors into stable Tymba validation results; do not make SDK exception text a user-facing or domain-level contract. Validation does not establish exact parity of Tymba's own calculations.
+- **Quote math (local, state-dependent):** `client.pool.getQuoteFromInputAmount` and `getQuoteFromOutputAmount` simulate a launch-state quote from a `SwapQuoteConfig` before a pool exists. `swapQuote`, `swapQuoteExactIn`, `swapQuotePartialFill`, and `swapQuoteExactOut` / `client.pool.swapQuote2` quote against an existing `VirtualPool` and `PoolConfig`. Supply the correct virtual state, direction, fee/referral options, first-swap eligibility, and current point. These are SDK quote results, not writes or a substitute for Tymba's deterministic simulator and parity tests.
+- **Numeric boundary:** quote inputs/results and most encoded curve/swap values use SDK `BN`; price encodings use Q64.64 integers. Tymba's domain remains `bigint` as already decided. Convert only inside the adapter, reject unsafe JS-number conversions for atomic amounts, and preserve the complete SDK result fields needed for exact comparisons. Human-scale builder inputs that the SDK types as `number` must be range-checked before conversion; do not route atomic values through floating point.
+- **RPC-backed reads:** `StateService` exposes async reads including `getPoolConfig`, `getPoolConfigs`, and `getPoolConfigsByOwner`; pool/account state reads similarly require a configured Solana `Connection`. Keep these separate from pure solver/quote functions and make network/commitment explicit. Pin expected network/program identity in adapter configuration.
+- **Transaction construction:** `client.partner.createConfig` / `createConfigAndPool`, `client.creator.createPool` (and optional first-buy variants), and `client.pool.swap` / `swap2` return `Transaction` objects. `client.migration.createLocker`, `withdrawLeftover`, and `migrateToDammV2` build migration transactions; the DAMM v2 migration response also includes two position-NFT `Keypair`s. SDK APIs are builders; Tymba owns the explicit user approval, signing, submission, confirmation, and error/status reporting flow. Never log or persist generated secret key material. Config and pool creation can be separate transactions; do not assume atomicity unless using a documented combined builder.
+
+**Adapter contract for later implementation:** expose domain-level candidate build/validate/quote/read/build-transaction operations; keep RPC and wallet capabilities optional and explicit. The optimizer and simulator must remain usable without a wallet or network. Treat any SDK version upgrade as a protocol-boundary change requiring declaration/source review and parity-suite reruns. The official SDK README documents the partner-config → creator-pool → trading → DAMM v2 migration lifecycle, and the 1.5.13 changelog records both pre-pool quote helpers and the current version-specific API changes.
+
+## Source links
+
+- [DBC SDK changelog](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk/blob/main/packages/dynamic-bonding-curve/CHANGELOG.md)
+- [DBC SDK package release](https://www.npmjs.com/package/@meteora-ag/dynamic-bonding-curve-sdk)
+- [DBC TypeScript SDK README and flow](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk/blob/main/packages/dynamic-bonding-curve/README.md)
+- [DBC SDK changelog, including 1.5.13](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk/blob/main/packages/dynamic-bonding-curve/CHANGELOG.md)
+- [DBC TypeScript SDK getting started guide](https://docs.meteora.ag/developer-guides/dbc/typescript-sdk/getting-started)
+- [DBC program and feature overview](https://github.com/MeteoraAg/dynamic-bonding-curve)
+- [DBC program account model and constants](https://github.com/MeteoraAg/docs/blob/main/developer-guides/dbc/program/accounts.mdx)
+- [DBC SDK changelog: Token-2022 transfer-hook API and tests](https://github.com/MeteoraAg/dynamic-bonding-curve-sdk/blob/main/packages/dynamic-bonding-curve/CHANGELOG.md)
+- [DAMM v2 changelog: Token-2022 transfer-hook migration condition](https://github.com/MeteoraAg/damm-v2/blob/main/CHANGELOG.md)
+- [DBC program IDL/source](https://github.com/MeteoraAg/dynamic-bonding-curve)
+- [DBC account permissions](https://docs.meteora.ag/core-products/dbc/accounts-and-permissions)
+- [DBC program instruction surface](https://docs.meteora.ag/developer-guides/dbc/program/instructions)
+- [DBC supply and launch configuration](https://docs.meteora.ag/core-products/dbc/launch-configurations)
+- [DBC migration and liquidity](https://docs.meteora.ag/core-products/dbc/migration-and-liquidity)
+- [DBC surplus and leftover](https://docs.meteora.ag/core-products/dbc/surplus-and-leftover)
+- [DBC formulas](https://docs.meteora.ag/core-products/dbc/formulas)
+- [DBC fee scheduler](https://docs.meteora.ag/core-products/dbc/fees/fee-scheduler)
+- [DBC dynamic fees](https://docs.meteora.ag/core-products/dbc/fees/dynamic-fees)
+- [DBC pool state and swap implementation](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/state/virtual_pool.rs)
+- [DBC volatility tracker implementation](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/state/fee.rs)
+- [DBC program constants](https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/constants.rs)
+- [DBC developer guide and program IDs](https://github.com/MeteoraAg/docs/blob/main/developer-guides/dbc/index.mdx)
+- [DAMM v2 deployment IDs and authority](https://github.com/MeteoraAg/docs/blob/main/developer-guides/damm-v2/index.mdx)
+
+## Decisions from the product owner
+
+- Demo quote economics use USD-stable semantics: canonical USDC on mainnet and a controlled six-decimal SPL mint on devnet unless a canonical faucet-backed mint is verified end to end.
+- Demo token decimals are base 9 and quote 6. The general domain representation remains metadata-driven.
+- Atomic values use `bigint` in Tymba's domain model. Convert to SDK-specific BN types only at the adapter boundary if required.
+- Exact parity is the default for protocol outputs. Only a source-demonstrated SDK helper boundary may receive a narrowly documented tolerance of at most one atomic unit.
+- Keep continuous economic optimization separate from quantized DBC math. All user-visible results come from the quantized candidate after exact simulation and SDK validation.
+- Implement fees in stages: fixed base fee, scheduled base fees with slot/timestamp semantics, then stateful dynamic fees copied from SDK/program behavior.
+- Use explicit accounting ledgers for reserves, trading fees, migration fees, surplus, DAMM liquidity, and fixed-supply leftovers.
+
+## Must inspect or prove before implementing the corresponding logic
+
+- Q64.64 price conversion with different base and quote decimals at exact integer boundaries, including SDK quantization/rounding.
+- Required-input versus output rounding for each swap direction and each segment crossing.
+- Fee numerators, fee-on-input/output behavior, referral splitting, creator/partner splitting, and all integer rounding.
+- Exact final-swap reserve/fee ordering and surplus creator split rounding.
+- Configurable migration-fee amount/recipient split rounding; protocol liquidity migration fee source amounts and rounding on both sides.
+- DAMM v2 atomic allocation amounts, rounding, and locked-vesting validation in the pinned SDK/program.
+- Fixed-supply leftover atomic calculation and exact validation inequalities.
+- Exact SDK/program parity for scheduler and dynamic-fee behavior at boundaries, including fixed-point exponential rounding, fee split order, and dynamic state transitions.
+- Devnet quote-mint availability and whether a dedicated six-decimal test mint can traverse the complete DBC-to-DAMM v2 flow.
+
+Migration and ledger formulas from current Meteora documentation, with exact integer/source parity still pending:
+
+- `totalSurplus = max(0, quoteReserve - migrationQuoteThreshold)`; allocate 80% to partner/creator (floor the combined amount) and the remainder to protocol, then apply the configured creator/partner split. Split-rounding details remain unverified.
+- `migrationQuoteAmount = ceil(migrationQuoteThreshold * (100 - migrationFeePct) / 100)` and `migrationFee = migrationQuoteThreshold - migrationQuoteAmount`.
+- A separate fixed 20 bps protocol liquidity-migration fee applies to both base and quote migration amounts; exact bases and rounding remain unverified.
+- Keep six DAMM v2 allocation buckets (creator/partner × unlocked/permanent/vesting); docs require allocations to sum to 100%, at least 10% remain locked one day after migration, and at most two years' vesting/lock duration. Exact amount rounding remains unverified.
+- For fixed supply, track leftover base tokens separately, excluding protocol/trading base fees and protocol migration base fee; withdrawal waits until `CreatedPool` and uses the configured receiver. Reproduce source fee/vault arithmetic before implementation.
+
+The intended ledger keeps these accounts distinct: pool base/quote reserves; protocol, partner, and creator base/quote trading fees; protocol/partner/creator surplus; partner/creator configurable migration fees; protocol base/quote migration-liquidity fees; DAMM v2 base/quote liquidity; and fixed-supply leftover base tokens. Its shape is specified in `spec.md` §6.3.
+
+## Precision and verification contract
+
+1. Continuous solver output may be approximate and must carry its objective error metrics.
+2. The protocol compiler converts human prices and liquidity into SDK/program encodings and atomic values.
+3. The deterministic simulator runs only on the quantized protocol candidate.
+4. SDK parity tests compare encoded fields and protocol outputs exactly by default: zero atomic units for token amounts/fees and exact integer equality for Q64.64 values.
+5. Any exception must identify one SDK helper, demonstrate why exact comparison is impossible, and document a maximum one-atomic-unit tolerance. Do not apply this exception to a whole test suite.
+6. Human-readable display tests verify formatting separately from protocol parity.

@@ -17,6 +17,8 @@ Tymba is market-design infrastructure, not a generic token launchpad, trading te
 - `spec.md` is the canonical product and technical specification.
 - This PRD is a planning summary derived from `spec.md`; it must not silently override it.
 - The currently deployed Meteora program and SDK are authoritative for protocol behavior, integer representations, limits, rounding, fees, migration, and deployment semantics.
+- Tymba's initial demo uses USD-stable quote semantics (USDC on mainnet and a controlled six-decimal SPL test mint on devnet if the full migration flow is supported), with 9 base-token decimals and 6 quote-token decimals.
+- The continuous economic solver and discrete DBC protocol math must remain separate. Only the quantized candidate, after deterministic simulation and SDK validation, supplies user-visible metrics.
 - When implementation discovers a conflict with the spec, stop and document the discrepancy before choosing a behavior. Update the relevant documentation after the behavior is verified.
 
 ## 3. Users and core job
@@ -47,6 +49,7 @@ Describe → Compile → Explain → Simulate → Attack → Audit → Harden �
 - Support a structured market-intent form.
 - Support optional natural-language intent input.
 - Convert natural language to a typed `MarketIntent` for validation.
+- Return explicit `valid` or `invalid` validation status; invalid intents include actionable field-level issues and do not proceed to solving.
 - Keep protocol jargon out of the primary UI; expose raw DBC parameters only in an advanced view.
 
 ### Compile
@@ -116,6 +119,8 @@ The implementation must cover:
 
 The core math must use safe precision and explicit rounding policies. Avoid floating-point values for on-chain quantities where integer arithmetic or a documented fixed-point representation is required.
 
+Use `bigint` for atomic amounts; exact parity is the default for protocol outputs. Any exception is helper-specific, documented, and no more than one atomic unit. The pinned public builder accepts up to 16 curve entries, one per segment; because the starting boundary is supplied separately, a 16-segment curve has 17 sqrt-price boundaries. Legacy stored configs can hold 20 entries, which remains a separate import/audit capacity.
+
 ### Reporting
 
 Reports must distinguish:
@@ -175,7 +180,7 @@ pnpm tymba attack example.json --scenario sniper
 
 ## 9. Initial architecture
 
-Use a TypeScript monorepo only after the repository is initialized with the required tooling. Keep domain logic independent from UI and network side effects.
+Start as one TypeScript package. Keep `src/economics` and `src/dbc-math` as distinct domain modules, independent from UI and network side effects. Create a TypeScript monorepo only when those boundaries need an independent package lifecycle or tooling.
 
 Suggested boundaries:
 
@@ -197,10 +202,10 @@ Do not create these directories merely to match the proposal. Add them as implem
 Before production deployment, validate against the current SDK/program:
 
 - curve-point representation and integer precision;
-- maximum supported segment count;
+- maximum public-builder point count and legacy stored-config capacity, including their mapping to product segments;
 - fixed versus dynamic supply constraints;
 - dynamic-fee evolution and scheduler timing;
-- migration overshoot and surplus recipient behavior;
+- exact migration overshoot, configurable migration-fee, surplus split, and liquidity-migration-fee rounding;
 - devnet parity;
 - Token-2022 and transfer-hook behavior;
 - post-migration liquidity-accounting semantics;
@@ -220,4 +225,3 @@ No implementation should turn an unresolved question into an undocumented assump
 - generalized DeFi protocol builder;
 - transfer hooks as a core launch feature;
 - mainnet deployment before devnet verification is reliable.
-

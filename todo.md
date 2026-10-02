@@ -41,16 +41,16 @@ Goal: turn the empty specification workspace into a minimal, testable engineerin
 
 ### Product decisions to lock before coding
 
-- [ ] Confirm the quote asset, token decimals, and unit conventions for the first demo profile.
+- [x] Confirm the quote semantics (USD-stable/USDC), base decimals (9), quote decimals (6), and atomic amount conventions (`bigint`) for the first demo profile.
 - [x] Confirm whether the first CLI and domain packages will be a small single package or a monorepo.
 - [x] Define the supported MVP intent fields and which fields are deferred, using `PRD.md` as the MVP boundary.
 - [x] Define the first supported Meteora network: devnet only for MVP deployment.
-- [ ] Define numerical tolerances for local-to-SDK parity checks.
+- [x] Define parity policy: exact atomic/Q64.64 equality by default; at most one atomic unit for an evidence-backed, helper-specific exception.
 - [x] Create a decision log for all unresolved Meteora questions.
 
 ### Phase gate
 
-- [ ] A clean checkout can install dependencies and run the empty test suite.
+- [x] A frozen-lockfile install succeeds and the configured check passes with the currently empty test suite.
 - [x] The repository has one documented command for format, lint, type check, and test.
 - [x] No protocol behavior is implemented from an unverified assumption.
 
@@ -60,34 +60,37 @@ Goal: create a verified protocol boundary before writing the solver.
 
 ### SDK and protocol research
 
-- [ ] Select and pin the Meteora SDK version.
-- [ ] Identify the deployed DBC program ID and supported network configuration.
-- [ ] Verify curve-point representation, price scale, liquidity representation, and integer precision.
-- [ ] Verify the maximum supported number of curve segments.
-- [ ] Verify fixed versus dynamic supply behavior and leftover handling.
-- [ ] Verify fee schedules, dynamic-fee state, and timestamp/slot semantics.
-- [ ] Verify migration threshold, overshoot, surplus, and recipient behavior.
-- [ ] Verify post-migration liquidity allocation, locking, vesting, and partner/creator economics.
-- [ ] Verify immutable versus mutable configuration fields.
-- [ ] Verify SDK helpers available for curve construction, quoting, validation, and deployment.
-- [ ] Verify Token-2022 and transfer-hook behavior, but keep transfer hooks outside MVP core.
-- [ ] Capture sources, SDK references, example values, and known limitations in a protocol notes document.
+- [x] Select and pin `@meteora-ag/dynamic-bonding-curve-sdk` at exactly `1.5.13`.
+- [x] Record the DBC and DAMM v2 program IDs and pool authorities from current Meteora developer documentation.
+- [x] Verify curve-point representation, price scale, liquidity representation, and decimal conversion against pinned SDK declarations; preserve exact rounding/program parity as a Phase 2 test obligation.
+- [x] Verify the public-builder limit (16 curve entries/segments) and legacy stored capacity (20 entries) from current official docs/source.
+- [x] Verify that N boundary prices compile to N−1 curve entries/segments; 16 entries require 17 boundary prices including the start.
+- [x] Verify documented fixed versus dynamic supply behavior and leftover lifecycle; exact supply inequalities and atomic accounting remain a parity-test obligation.
+- [x] Verify documented and source-visible scheduler/dynamic-fee behavior and clock semantics; exact fixed-point/fee-split parity remains a test obligation.
+- [x] Verify documented migration threshold, overshoot, surplus, and recipient behavior; exact split/fee rounding remains a parity-test obligation.
+- [x] Verify documented post-migration liquidity allocation, locking, vesting, and partner/creator ownership; exact atomic allocation remains a parity-test obligation.
+- [x] Verify config immutability and live-pool/token authority boundaries against the pinned SDK IDL and current Meteora docs; re-check if the deployed program/SDK changes.
+- [x] Map pinned SDK helpers for curve construction, quoting, validation, RPC reads, and transaction construction to the future adapter boundary; signing/submission remain explicit Tymba responsibilities.
+- [x] Identify Circle Devnet USDC as the leading six-decimal, faucet-backed quote-mint candidate; full DBC-to-DAMM v2 support remains unverified.
+- [ ] Verify the candidate mint on devnet and complete an explicitly approved DBC-to-DAMM v2 integration run before adopting it.
+- [x] Verify the pinned SDK/program's Token-2022, token-badge, and transfer-hook paths and migration/authority constraints; keep transfer hooks outside MVP core and avoid blanket Token-2022 extension claims.
+- [x] Capture currently verified sources, SDK references, example values, and known limitations in `PROTOCOL_NOTES.md`.
 
 ### Domain types
 
-- [ ] Define `CurrencyAmount` and unit/decimal conversion rules.
-- [ ] Define `MarketIntent` and validation rules.
-- [ ] Define `CurveSegment` and `DbcCurve` using protocol-compatible representations.
-- [ ] Define fee, migration, allocation, solver result, and warning types.
-- [ ] Define deterministic pool state and trade-result types.
-- [ ] Define simulation, attack, audit finding, and deployment-record types.
-- [ ] Define explicit status values: satisfied, partial, unsatisfied, invalid, and verified/unverified where needed.
+- [x] Define `CurrencyAmount` and exact decimal-string parse/format rules; require explicit rounding when reducing precision (`src/domain/currency-amount.ts`).
+- [x] Define the canonical decimal-string `MarketIntent`, validate alternatives/conflicts, and normalize to exact atomic and arbitrary-precision values (`src/domain/market-intent.ts`).
+- [x] Define and structurally validate `CurveSegment`/`DbcCurve` with Q64.64 `bigint` boundaries, u128 liquidity, u64 quote threshold, and the 16-segment public-builder limit (`src/domain/curve.ts`).
+- [x] Define fee, migration, allocation, solver result, and warning types (`src/domain/fees.ts`, `src/domain/migration.ts`, `src/domain/solver-result.ts`).
+- [x] Define deterministic pool state and trade-result types (`src/domain/pool-state.ts`, `src/domain/trade-result.ts`).
+- [x] Define simulation, attack, audit finding, and deployment-record types (`src/domain/simulation.ts`, `src/domain/attack-result.ts`, `src/domain/audit.ts`, `src/domain/deployment-record.ts`); document canonical contracts in `spec.md` §20.
+- [x] Define explicit status values for validation, solver outcomes, and verification evidence (`src/domain/status.ts`).
 
 ### Phase gate
 
-- [ ] Protocol notes answer the open technical questions that affect MVP math or deployment.
-- [ ] Domain types do not depend on UI, database, LLM, or wallet code.
-- [ ] Invalid units, signs, ranges, segment ordering, allocations, and integer bounds have validation rules.
+- [x] Protocol notes distinguish source-backed facts from unresolved behavior and map remaining math/deployment questions to explicit parity or devnet verification gates; documentation alone does not count as parity evidence.
+- [x] Domain types do not depend on UI, database, LLM, wallet, SDK, or network code.
+- [x] Add pure runtime validators for fee configurations, migration fees, allocation intent, and six DAMM v2 liquidity buckets, including supported units, ranges, sums, and integer bounds (`src/domain/configuration-validation.ts`).
 
 ## Phase 2 — Implement and verify DBC math
 
@@ -95,16 +98,16 @@ Goal: build the smallest trustworthy mathematical core.
 
 ### Core calculations
 
-- [ ] Implement the canonical price representation and conversion helpers.
-- [ ] Implement quote required to traverse one segment.
-- [ ] Implement base tokens distributed through one segment.
-- [ ] Implement inverse/reverse calculations needed for verification.
-- [ ] Implement multi-segment quote accumulation.
-- [ ] Implement multi-segment base distribution.
-- [ ] Implement buy quoting across segment boundaries.
-- [ ] Implement sell quoting across segment boundaries.
-- [ ] Implement explicit fee application and rounding behavior.
-- [ ] Implement migration progress, threshold, overshoot, and surplus calculations.
+- [x] Implement human-price ↔ Q64.64 conversion with exact decimal-rational quantization, floor rounding, and explicit asset decimal scales (`src/domain/price.ts`).
+- [x] Implement quote required to traverse one segment.
+- [x] Implement base tokens distributed through one segment.
+- [x] Implement inverse/reverse calculations needed for verification.
+- [x] Implement multi-segment quote accumulation.
+- [x] Implement multi-segment base distribution.
+- [x] Implement buy quoting across segment boundaries.
+- [x] Implement sell quoting across segment boundaries.
+- [x] Implement explicit fixed-fee application and rounding behavior; scheduled/dynamic fee-rate selection remains deferred.
+- [x] Implement migration threshold price, quote progress, completion, overshoot, and verified aggregate surplus shares; exact creator/partner surplus split remains unresolved.
 - [ ] Implement post-migration allocation accounting needed by the MVP.
 
 ### Tests and parity
@@ -115,10 +118,13 @@ Goal: build the smallest trustworthy mathematical core.
 - [ ] Add tests for buys and sells with fees.
 - [ ] Add property tests for increasing liquidity reducing price movement for fixed input.
 - [ ] Add property tests for monotonic price progression and valid segment ordering.
-- [ ] Add approximate buy-then-sell reversibility tests with documented fee/rounding tolerance.
+- [ ] Add buy-then-sell reversibility tests with documented fee and integer-rounding effects.
 - [ ] Add tests that the multi-segment total equals the sum of segment calculations.
-- [ ] Generate valid configurations and compare local quotes against the Meteora SDK.
-- [ ] Document every intentional local-to-SDK difference and its tolerance.
+- [ ] Generate valid configurations and require exact local-to-SDK equality for protocol outputs.
+- [ ] Verify raw Q64.64 price boundaries pass unchanged through the pinned SDK custom-sqrt-price builder; do not assume parity with its finite-precision price convenience helper.
+- [ ] Allow at most a documented one-atomic-unit exception for a proven SDK-helper conversion boundary.
+- [ ] Test human-readable price formatting separately from protocol parity.
+- [ ] Document every intentional local-to-SDK difference and its narrow tolerance.
 
 ### Phase gate
 
@@ -297,6 +303,7 @@ Goal: deploy only an approved, validated configuration and verify the on-chain r
 
 - [ ] Add network and wallet validation.
 - [ ] Add configuration validation immediately before transaction construction.
+- [ ] Validate the fully assembled SDK candidate with `validateConfigParameters` and verify day-one minimum locked liquidity from complete vesting schedules; domain allocation checks alone cannot prove this.
 - [ ] Add balance and fee-budget checks.
 - [ ] Add transaction preview and simulation.
 - [ ] Require explicit final user approval before signing/broadcasting.
@@ -368,4 +375,10 @@ Goal: package one compelling, truthful, reproducible end-to-end demonstration.
 
 ## Current next action
 
-- [ ] Decide the initial TypeScript/package-manager setup and begin Phase 0.
+- [x] Define and test the canonical `MarketIntent` validator and normalization; revise `spec.md` to remove the competing schemas and use the canonical demo fixture.
+- [x] Define and test the protocol-compatible curve domain types and shape validator; keep SDK-specific range checks at the adapter boundary.
+- [x] Define fee, migration, allocation, solver result, and warning types; keep the three-part intent allocation separate from the six protocol liquidity buckets until their mapping is verified.
+- [x] Define deterministic pool state and trade-result types with separate atomic ledgers, both clock units, SDK volatility state, and asset-tagged amounts.
+- [x] Define stochastic simulation, attack, audit finding, and deployment-record types; document their canonical contracts in `spec.md` §20.
+- [x] Define explicit status values for validation, solver outcomes, and verification evidence (`src/domain/status.ts`).
+- [ ] Verify the quote-mint end-to-end devnet gate before adoption; this requires an explicitly approved deployment/integration run.

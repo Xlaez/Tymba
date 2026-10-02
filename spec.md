@@ -13,7 +13,7 @@ Tymba turns human-readable token-launch goals into valid Meteora DBC configurati
 Meteora DBC exposes a powerful but low-level market primitive:
 
 - starting price,
-- up to 16 increasing-price liquidity segments,
+- up to 16 public-builder curve entries (one per segment; legacy stored configs may contain up to 20 entries),
 - migration threshold,
 - fee schedules,
 - dynamic fees,
@@ -199,6 +199,31 @@ Tymba must treat the following as hard constraints:
 - DBC itself does not continuously rewrite its curve based on external oracle events.
 
 This constraint should shape both the UI and optimizer.
+
+## 3.5 Protocol precision and candidate pipeline
+
+The equations above describe the continuous economic model. They are not a substitute for Meteora's integer implementation or the exact values returned by the SDK.
+
+For the initial demo:
+
+- use a 9-decimal base token and a 6-decimal USD-stable quote asset;
+- represent token decimals as metadata, not a fixed enum;
+- represent atomic amounts as `bigint` throughout domain code;
+- convert to an SDK-specific BN representation only inside the Meteora adapter when required;
+- do not pass atomic token quantities through JavaScript `number`;
+- represent encoded square-root prices using the SDK/program's Q64.64 integer format (`u128` on chain).
+
+Human price means quote-token units per one base-token unit. Convert it to the atomic quote/base ratio with `price * 10^(quoteDecimals - baseDecimals)`. Encode the positive Q64.64 square-root price as `floor(sqrt(atomicPrice) * 2^64)` using exact decimal-rational and integer arithmetic; reject encoded values outside positive `u128`. Decode with `sqrtPriceQ64x64^2 / 2^128 * 10^(baseDecimals - quoteDecimals)` into arbitrary-precision `Decimal`. Do not use JavaScript `number` for prices or the decimal-scale factor. Base decimals must be 6–9 and quote decimals 0–255.
+
+The pinned SDK's `getSqrtPriceFromPrice` follows the same equation and floors, but its finite-precision Decimal helper can produce different Q64.64 integers for some supported decimal/price combinations. Tymba's domain conversion therefore uses exact rational quantization and the adapter must pass the resulting raw sqrt-price boundaries to `buildCurveWithCustomSqrtPrices`; do not claim universal parity with the SDK convenience helper. The 9/6 demo examples match it. The discrepancy and pinned-version evidence are tracked in `PROTOCOL_NOTES.md`; final SDK configuration validation and parity of the resulting curve remain required.
+
+Keep continuous economic calculations and discrete DBC protocol calculations in separate modules. The economic solver may produce approximate objective values; a protocol compiler must quantize its candidate to on-chain integers. Run simulation, validation, and SDK parity against that quantized candidate. All metrics shown to users must come from this final candidate, not from idealized pre-quantization values.
+
+Protocol parity is exact by default: zero atomic-unit tolerance for amounts and fees, and exact integer equality for encoded Q64.64 values. A specific SDK helper may receive a documented tolerance of at most one atomic unit only if evidence shows its conversion boundary cannot match exactly. Display-format comparisons are separate from protocol parity.
+
+The program's amount calculations use explicit rounding. Required input is rounded up and delivered output is rounded down where the corresponding protocol operation specifies those directions. Keep rounding explicit in low-level math primitives and verify every swap path against the pinned SDK/program.
+
+The public-builder `curve` array accepts at most 16 entries, with one entry per segment. A sqrt-price boundary list therefore contains the starting boundary plus one boundary per entry, for at most 17 boundaries and 16 segments. Legacy on-chain configurations may contain up to 20 stored entries; imported-config support must keep that capacity separate from generated public-builder curves.
 
 ---
 
@@ -389,6 +414,8 @@ Do not show raw integer sqrt-price representations unless the user explicitly op
 
 ## 6.1 Market objectives
 
+The initial demo uses a USD-stable quote asset: canonical USDC on mainnet and a controlled six-decimal SPL test mint on devnet if it supports the complete DBC-to-DAMM v2 flow. The domain model stores quote mint, decimals, symbol, and an optional USD-peg display hint. DBC calculations remain denominated in quote/base units; USD is a presentation conversion and must not enter the core math.
+
 The optimizer should support these first-class economic objectives:
 
 ### Capital objective
@@ -506,6 +533,8 @@ Protocol fee
 
 where calculable.
 
+Treat the base-fee scheduler and dynamic volatility fee as separate components of the total trading fee. The simulation clock must carry both timestamp and slot because activation and scheduler behavior can use either. Implement fixed fees first, scheduled base fees second, and stateful dynamic fees only after mirroring and parity-testing the SDK/program state machine.
+
 ---
 
 ## 6.3 Surplus
@@ -520,7 +549,52 @@ Final purchase moves reserve to: 105 SOL
 Surplus: 5 SOL
 ```
 
-Surplus should not be ignored in economic simulations.
+Model surplus as quote reserve above the migration threshold. Keep it separate from amounts migrated into DAMM v2 and from configurable migration fees. Track protocol, partner, and creator surplus claims independently, including the exact split and integer rounding used by the selected SDK/program version.
+
+The program constants currently define an 80% partner/creator share of surplus and a 20% protocol share. The partner/creator amount is then split according to configuration. The protocol also defines a 20 bps (0.2%) liquidity migration fee. Treat these as versioned protocol values and verify exact application to base and quote amounts against the pinned SDK/program before relying on them.
+
+Maintain explicit ledgers for pool reserves, accrued trading fees, surplus, configurable migration fees, protocol migration-liquidity fees, DAMM v2 liquidity, and fixed-supply leftovers. Do not combine these into a single balance.
+
+The accounting boundary should expose components separately, for example:
+
+```ts
+type AssetSide = "base" | "quote";
+
+type AssetAmount<Asset extends AssetSide = AssetSide> = {
+  asset: Asset;
+  amount: CurrencyAmount;
+};
+
+type AssetAmountPair = {
+  base: CurrencyAmount;
+  quote: CurrencyAmount;
+};
+
+type EconomicLedger = {
+  pool: AssetAmountPair;
+  fees: {
+    totalTrading: AssetAmountPair;
+    protocol: AssetAmountPair;
+    partner: AssetAmountPair;
+    creator: AssetAmountPair;
+    referral: AssetAmountPair;
+  };
+  surplus: {
+    protocol: AssetAmount<"quote">;
+    partner: AssetAmount<"quote">;
+    creator: AssetAmount<"quote">;
+  };
+  migration: {
+    partnerFee: AssetAmount<"quote">;
+    creatorFee: AssetAmount<"quote">;
+    protocolLiquidityFee: AssetAmountPair;
+    dammLiquidity: AssetAmountPair;
+  };
+  leftoverBase: AssetAmount<"base">;
+};
+```
+
+All surplus and configurable migration-fee amounts in this ledger are quote-token amounts. Protocol migration-liquidity fees and DAMM v2 deposits track base and quote separately. `totalTrading` is an aggregate and must not be added again to its recipient components. The SDK-reported trading, protocol, and referral fee amounts are retained separately; whether they are additive is determined by the parity-tested accounting path.
 
 The audit should include:
 
@@ -557,6 +631,8 @@ Expected leftovers
 Leftover receiver
 ```
 
+After DAMM v2 migration, track creator and partner liquidity allocations separately across unlocked, permanently locked, and vesting positions. Their configured allocations must sum to 100%. Current protocol constants require at least 10% locked on day one and cap lock duration at two years; enforce these through SDK/program-backed validation.
+
 ---
 
 # 7. Inverse DBC Solver
@@ -567,84 +643,152 @@ This is the core technical differentiator.
 
 ## 7.1 Input
 
-Define:
+The public/API/UI boundary uses one canonical `MarketIntent`. All economic decimal values are plain decimal strings; JavaScript `number` is not used for prices, FDV, supply, quote targets, percentages, or atomic amounts. `decimals` and `maxSegments` are structural integer fields, not economic decimal values.
+
+`totalBase` and `quoteToMigration` are human-readable token units and are converted using the corresponding asset decimals. FDV is a quote-denominated human economic target, not a token amount. Percentage strings are human percentages, so `"25"` means 25%.
 
 ```ts
+type DecimalString = string;
+
+type AssetDefinition = {
+  symbol: string;
+  decimals: number;
+  mint?: string;
+};
+
 type MarketIntent = {
-  tokenSupply: bigint;
-
-  startPrice?: number;
-  startFdv?: number;
-
-  migrationPrice?: number;
-  migrationFdv?: number;
-
-  quoteTarget?: number;
-  targetBaseDistributedPct?: number;
-
-  maxSegments?: number;
-
-  earlyPriceImpactTarget?: number;
-  earlyBuyerAdvantageTarget?: number;
-
-  launchProfile?: "deep" | "balanced" | "momentum";
-
-  feeIntent?: {
-    sniperResistance: "low" | "medium" | "high";
-    dynamicFees: boolean;
+  assets: {
+    base: AssetDefinition;
+    quote: AssetDefinition;
   };
-
-  migrationIntent?: {
-    creatorLockedPct?: number;
-    partnerLockedPct?: number;
-    unlockedPct?: number;
-    lockDurationSeconds?: number;
+  supply: {
+    totalBase: DecimalString;
+  };
+  pricing: {
+    startPrice?: DecimalString;
+    startFdv?: DecimalString;
+    migrationPrice?: DecimalString;
+    migrationFdv?: DecimalString;
+  };
+  targets: {
+    quoteToMigration?: DecimalString;
+    baseDistributionPct?: DecimalString;
+  };
+  preferences?: {
+    launchProfile?: "deep" | "balanced" | "momentum";
+    maxEarlyPriceImpactPct?: DecimalString;
+    earlyBuyerAdvantagePct?: DecimalString;
+    sniperResistance?: "low" | "medium" | "high";
+  };
+  solver?: {
+    maxSegments?: number;
+  };
+  migration?: {
+    creatorLockedPct?: DecimalString;
+    partnerLockedPct?: DecimalString;
+    unlockedPct?: DecimalString;
+    lockDurationSeconds?: string;
   };
 };
 ```
+
+Validation requires at least one of `startPrice`/`startFdv` and at least one of `migrationPrice`/`migrationFdv`. If both members of either pair are provided, they must agree given `totalBase`; inconsistent pairs are rejected. The missing representation is derived during normalization. Amounts must be exactly representable at the specified asset decimals. Percentages are checked as exact basis-point values.
+
+Intent validation returns `status: "valid"` with both the accepted intent and normalized values, or `status: "invalid"` with path-specific issues. Invalid input is never normalized or passed to the solver. These shared validation, solver, and verification statuses are defined in §20.5.
+
+Normalization happens immediately after validation. It converts token quantities to atomic `bigint`, percentages to basis points, and prices/FDV to arbitrary-precision decimal values. The normalized form is the solver input; protocol compilation later quantizes into protocol-specific fixed-point and integer types.
+
+```ts
+type NormalizedMarketIntent = {
+  assets: {
+    base: AssetDefinition;
+    quote: AssetDefinition;
+  };
+  baseDecimals: number;
+  quoteDecimals: number;
+  totalBaseAtomic: bigint;
+  startPrice: Decimal;
+  startFdv: Decimal;
+  migrationPrice: Decimal;
+  migrationFdv: Decimal;
+  quoteToMigrationAtomic?: bigint;
+  targetBaseDistributionBps?: bigint;
+  launchProfile?: "deep" | "balanced" | "momentum";
+  maxEarlyPriceImpactBps?: bigint;
+  earlyBuyerAdvantageBps?: bigint;
+  sniperResistance?: "low" | "medium" | "high";
+  maxSegments: number;
+  migration?: {
+    creatorLockedBps?: bigint;
+    partnerLockedBps?: bigint;
+    unlockedBps?: bigint;
+    lockDurationSeconds?: bigint;
+  };
+};
+```
+
+The MVP solver accepts 1–16 segments, corresponding to at most 16 public-builder curve entries and 17 sqrt-price boundaries including the start. The normalized default is three segments when no maximum is supplied. Do not use JavaScript `number` or `CurrencyAmount` for human economic prices or FDV.
 
 ---
 
 ## 7.2 Output
 
 ```ts
-type SolvedMarket = {
-  status: "satisfied" | "partial" | "unsatisfied";
+type SolverMetricSet = {
+  quoteToMigration: CurrencyAmount;
+  baseDistributed: CurrencyAmount;
+  baseDistributedBps: bigint;
+  migrationPrice: Decimal;
+  migrationFdv: Decimal;
+};
 
-  curve: CurveSegment[];
-
-  metrics: {
-    quoteToMigration: number;
-    baseDistributed: number;
-    baseDistributedPct: number;
-    migrationPrice: number;
-    migrationFdv: number;
-  };
-
+type SolvedMarketCandidate = {
+  id: string;
+  curve: DbcCurve;
+  metrics: SolverMetricSet;
   fees: FeeConfiguration;
-
   migration: MigrationConfiguration;
+  objectiveScore: Decimal;
+  verificationStatus: VerificationStatus;
+  explanations: SolverExplanation[];
+};
 
-  explanations: Explanation[];
-
+type SolverResult = {
+  status: SolverStatus;
+  candidates: SolvedMarketCandidate[];
   warnings: SolverWarning[];
 };
 ```
+
+Return up to three candidates in deterministic rank order. Solver statuses are defined in §20.5. An `unsatisfied` result has no deployable candidates; `partial` candidates must explain which constraints remain unmet. `CurrencyAmount` represents token quantities in atomic units, `Decimal` represents human economic prices/FDV and the solver objective, and percentages are integer basis points (`10_000` = 100%). `verificationStatus` describes the strongest evidence actually completed and must not be inferred from a local structural check.
 
 ---
 
 ## 7.3 Curve segment
 
+The domain curve stores encoded Q64.64 square-root price boundaries and unsigned protocol liquidity as `bigint`. Each segment is an interval between adjacent boundaries; the upper boundary and liquidity compile to one SDK curve entry shaped as `{ sqrtPrice: BN, liquidity: BN }`. The curve's migration quote threshold is a quote-token atomic amount encoded as `u64`.
+
 ```ts
 type CurveSegment = {
-  lowerPrice: number;
-  upperPrice: number;
-  liquidity: number;
+  lowerSqrtPriceQ64x64: bigint;
+  upperSqrtPriceQ64x64: bigint;
+  liquidity: bigint;
+};
 
-  expectedQuoteAbsorption: number;
-  expectedBaseDistribution: number;
+type DbcCurve = {
+  baseDecimals: number;
+  quoteDecimals: number;
+  startSqrtPriceQ64x64: bigint;
+  migrationQuoteThresholdAtomic: bigint;
+  segments: CurveSegment[];
 };
 ```
+
+Generated curves contain 1–16 contiguous segments, equivalent to 2–17 sqrt-price boundaries. Segment boundaries and liquidity must be positive, each upper boundary must exceed its lower boundary, and each segment must begin at the previous boundary. SDK-specific supported square-root price bounds and full configuration legality remain subject to the pinned SDK validator; structural validation alone does not prove a deployable config.
+
+For user-facing explanations, derive each segment's price range, quote absorption, base distribution, and purpose from this protocol representation and the verified simulator output. Do not store those economic outputs as JavaScript `number` values.
+
+The 20-entry legacy stored-config capacity is not the public-builder entry limit. Any future config-import path must model that legacy capacity separately.
 
 ---
 
@@ -738,11 +882,13 @@ Potential numerical approaches:
 
 For MVP, reliability and determinism are more important than theoretical elegance.
 
+Keep economic optimization and DBC protocol math as separate modules (initially `src/economics` and `src/dbc-math` within the root package). Optimize over human price boundaries and liquidity weights, then quantize to protocol values and re-run the deterministic simulator and SDK validation. The quantized result is authoritative for output, constraints, explanations, and UI metrics.
+
 ---
 
 # 8. Deterministic Simulator
 
-The deterministic simulator must reproduce DBC behavior closely enough that generated metrics are trustworthy.
+The deterministic simulator must reproduce DBC behavior exactly for protocol outputs under the pinned SDK/program, subject only to a narrowly documented helper-specific exception of at most one atomic unit.
 
 It should support:
 
@@ -757,13 +903,77 @@ surplus
 post-migration accounting
 ```
 
-The simulator should be tested against the official Meteora SDK wherever possible.
+The simulator must be tested against the pinned official Meteora SDK. Protocol outputs use exact parity by default; do not use percentage tolerances for atomic amounts, fees, or Q64.64 values.
 
 ---
 
 ## 8.1 Core simulator API
 
 ```ts
+type SimulationClock = {
+  slot: bigint;
+  timestampSeconds: bigint;
+};
+
+type DynamicFeeState = {
+  lastUpdateTimestamp: bigint;
+  sqrtPriceReferenceQ64x64: bigint;
+  volatilityAccumulator: bigint;
+  volatilityReference: bigint;
+};
+
+type PoolSupplyState = {
+  mode: "dynamic" | "fixed";
+  totalBaseSupply: AssetAmount<"base">;
+  baseDistributed: AssetAmount<"base">;
+};
+
+type PoolState = {
+  curve: DbcCurve;
+  fees: FeeConfiguration;
+  migration: MigrationConfiguration;
+  supply: PoolSupplyState;
+  ledger: EconomicLedger;
+  currentSqrtPriceQ64x64: bigint;
+  clock: SimulationClock;
+  activationPoint: bigint;
+  activationType: FeeClock;
+  migrationProgress: MigrationProgress;
+  hasSwapped: boolean;
+  dynamicFeeState?: DynamicFeeState;
+};
+
+type TradeFillStatus = "filled" | "partial";
+
+type TradeFeeAmounts = {
+  tradingFee: AssetAmount;
+  protocolFee: AssetAmount;
+  referralFee: AssetAmount;
+};
+
+type TradeResultBase<
+  InputAsset extends AssetSide = AssetSide,
+  OutputAsset extends AssetSide = AssetSide,
+> = {
+  status: TradeFillStatus;
+  requestedInput: AssetAmount<InputAsset>;
+  consumedInput: AssetAmount<InputAsset>;
+  unfilledInput: AssetAmount<InputAsset>;
+  output: AssetAmount<OutputAsset>;
+  nextSqrtPriceQ64x64: bigint;
+  fees: TradeFeeAmounts;
+};
+
+type BuyResult = TradeResultBase<"quote", "base"> & {
+  direction: "buy";
+};
+
+type SellResult = TradeResultBase<"base", "quote"> & {
+  direction: "sell";
+};
+
+type TradeResult = BuyResult | SellResult;
+
 interface DbcSimulator {
   quoteBuy(inputQuote: bigint, state: PoolState): BuyResult;
   quoteSell(inputBase: bigint, state: PoolState): SellResult;
@@ -771,10 +981,14 @@ interface DbcSimulator {
   executeBuy(inputQuote: bigint, state: PoolState): PoolState;
   executeSell(inputBase: bigint, state: PoolState): PoolState;
 
-  getSpotPrice(state: PoolState): number;
-  getMigrationProgress(state: PoolState): number;
+  getSpotPrice(state: PoolState): Decimal;
+  getMigrationProgress(state: PoolState): Decimal;
 }
 ```
+
+`PoolState` is a pure in-memory DBC simulation snapshot. It contains no RPC, wallet, signer, or transaction state. Reserves and accounting values use `CurrencyAmount`; current and volatility sqrt prices remain encoded Q64.64 `bigint` values. `PoolSupplyState` records the resolved supply mode and base supply/distribution metrics; the exact accounting boundary for base distribution must be established by parity tests. The simulation clock carries both slot and Unix timestamp, while `activationPoint` and `activationType` preserve the selected config's scheduler clock. `migrationProgress` is a lifecycle state, separate from the continuous progress ratio returned by the simulator.
+
+For trade results, `requestedInput` is the offered amount, `consumedInput` is the amount debited, `unfilledInput` is the unconsumed remainder, and `output` is what the trader receives after applicable fees. Each `AssetAmount` carries its base/quote identity and decimal scale. The fee fields mirror SDK-reported categories; do not assume they are disjoint or sum them without verifying the pinned implementation. `quoteBuy` and `quoteSell` are previews and do not mutate the supplied state; execution returns a new state only after the trade transition is parity-tested.
 
 ---
 
@@ -921,6 +1135,8 @@ $7,290
 
 These outputs must be labeled as simulations, not predictions or guarantees.
 
+The result contract in §20.1 is authoritative. Every run records engine and SDK versions; stochastic runs also record the random seed, requested/completed iteration counts, and archetype counts. Report distributions as statistics over completed runs and distinguish partial or failed runs from complete results. Do not interpret a percentile as a guarantee.
+
 ---
 
 # 10. Adversarial Engine
@@ -987,7 +1203,7 @@ Metrics:
 attacker PnL
 peak-to-trough drawdown
 late-buyer loss
-market recovery
+quote required for market recovery
 ```
 
 ---
@@ -1020,6 +1236,8 @@ best entry timestamp
 fee saved
 PnL improvement
 ```
+
+Attack result contracts and their scenario-specific metric units are defined in §20.2. Each run must preserve its seed, iteration counts, and engine/SDK versions so the outcome can be reproduced. A failed run records a failure and must not be presented as a completed attack result.
 
 ---
 
@@ -1127,6 +1345,8 @@ HIGH
 ```
 
 with exact supporting metrics.
+
+An audit finding must include its category, severity, concise explanation, evidence references, typed metric values, and suggested remediations. Evidence must identify whether it came from deterministic, stochastic, adversarial, SDK-parity, or on-chain data. The canonical finding and evidence contracts are defined in §20.3. Severity is an explainable classification, not a composite score; retain the supporting measurements and their provenance.
 
 Example:
 
@@ -1268,6 +1488,10 @@ Tymba should ultimately produce a real Meteora-compatible deployment.
 8. Compare deployed values against compiled values
 9. Save deployment record
 ```
+
+Every simulation and deployment record should include the Tymba engine version and exact Meteora DBC SDK version so results remain reproducible after dependency updates.
+
+The deployment record contract is defined in §20.4. Deployment is devnet-only for MVP and requires explicit user approval before signing or broadcast. Store public addresses, transaction signatures, version identifiers, timestamps, and verification results only; never store signer material or secrets. A local prepared record is not evidence of on-chain deployment, and a submitted transaction is not verified until fetched on-chain state has been compared with the compiled candidate.
 
 ---
 
@@ -1567,69 +1791,443 @@ tymba/
 
 # 20. Core Domain Types
 
+The external `MarketIntent` is defined only in §7.1, and curve types are defined only in §7.3. Do not redefine either contract here. `CurrencyAmount` stores an atomic integer plus its decimal scale. The following domain contracts use `bigint` for basis points, time intervals, and protocol-sized integer parameters; the SDK adapter performs any checked conversion to SDK-specific representations.
+
 ```ts
 type CurrencyAmount = {
   raw: bigint;
   decimals: number;
 };
 
-type PriceRange = {
-  lower: number;
-  upper: number;
+type FeeClock = "slot" | "timestamp";
+type FeeCollectionMode = "quote" | "output";
+
+type BaseFeeSchedule =
+  | { kind: "fixed"; feeBps: bigint }
+  | {
+      kind: "linear" | "exponential";
+      startingFeeBps: bigint;
+      endingFeeBps: bigint;
+      periodCount: bigint;
+      periodFrequency: bigint;
+      clock: FeeClock;
+    };
+
+type DynamicFeeConfiguration = {
+  binStepBps: bigint;
+  filterPeriodSeconds: bigint;
+  decayPeriodSeconds: bigint;
+  reductionFactorBps: bigint;
+  maxVolatilityAccumulator: bigint;
+  variableFeeControl: bigint;
 };
 
-type CurveSegment = {
-  index: number;
-  price: PriceRange;
-  liquidity: bigint;
+type FeeConfiguration = {
+  base: BaseFeeSchedule;
+  dynamic?: DynamicFeeConfiguration;
+  collectFeeMode: FeeCollectionMode;
+  creatorTradingFeeShareBps: bigint;
+  migratedPool?: MigratedPoolFeeConfiguration;
 };
 
-type DbcCurve = {
-  startPrice: number;
-  segments: CurveSegment[];
-  migrationQuoteThreshold: bigint;
+type MigrationFeeConfiguration = {
+  feeBps: bigint;
+  creatorFeeShareBps: bigint;
 };
 
-type MarketIntent = {
-  tokenSupply: bigint;
+type MigrationAllocationIntent = {
+  creatorLockedBps: bigint;
+  partnerLockedBps: bigint;
+  unlockedBps: bigint;
+  lockDurationSeconds?: bigint;
+};
 
-  startFdv?: number;
-  migrationFdv?: number;
-
-  quoteTarget?: number;
-  targetBaseDistributionPct?: number;
-
-  launchProfile?: "deep" | "balanced" | "momentum";
-
-  constraints?: {
-    maxEarlyPriceImpactPct?: number;
-    maxSegments?: number;
+type LiquidityAllocation = {
+  creator: {
+    unlockedBps: bigint;
+    permanentlyLockedBps: bigint;
+    vestingBps: bigint;
+  };
+  partner: {
+    unlockedBps: bigint;
+    permanentlyLockedBps: bigint;
+    vestingBps: bigint;
   };
 };
 
-type SimulationMetrics = {
-  migrated: boolean;
-  finalPrice: number;
-  quoteReserve: bigint;
-  baseDistributed: bigint;
-
-  maxDrawdownPct: number;
-  maxPriceImpactPct: number;
-
-  topHolderPct?: number;
-  topTenPct?: number;
-
-  feesGenerated: bigint;
+type MigrationConfiguration = {
+  destination: "damm-v2";
+  fee?: MigrationFeeConfiguration;
+  allocationIntent?: MigrationAllocationIntent;
+  liquidityAllocation?: LiquidityAllocation;
+  migratedPoolFee?: MigratedPoolFeeConfiguration;
 };
 
-type AttackResult = {
-  attackType: string;
-  attackerPnl: number;
-  maxDrawdownPct: number;
-  victimPriceDisadvantagePct?: number;
-  notes: string[];
+type MigratedPoolFeeConfiguration = {
+  feeBps: bigint;
+  collectFeeMode: "quote" | "output" | "compounding";
+  dynamicFeeEnabled: boolean;
+  compoundingFeeBps?: bigint;
+};
+
+type MigrationProgress = "bonding" | "curve-complete" | "locked-vesting" | "migrated";
+
+type SolverExplanation = {
+  code: string;
+  message: string;
+  segmentIndex?: number;
+};
+
+type SolverWarningCode =
+  | "constraint_conflict"
+  | "target_not_met"
+  | "protocol_limit"
+  | "unsupported_configuration"
+  | "allocation_mapping_unresolved"
+  | "verification_pending";
+
+type SolverWarning = {
+  code: SolverWarningCode;
+  severity: "info" | "warning" | "blocking";
+  message: string;
+  path?: string;
+  candidateId?: string;
+  verificationStatus?: VerificationStatus;
 };
 ```
+
+`MigrationAllocationIntent` is the normalized three-part allocation in §7.1. `LiquidityAllocation` records the six creator/partner post-migration buckets described in §6.4. They are deliberately separate: the protocol-backed conversion between them has not been established and must not be guessed. BPS values, allocation sums, lock durations, and SDK-specific limits require runtime validation before compilation.
+
+Solver outputs are defined in §7.2, and pool state and deterministic trade results are defined in §8.1. The simulation, attack, audit, and deployment contracts are defined in §§20.1–20.4. Do not use JavaScript `number` for monetary values, prices, percentages, PnL, or economic ratios in any domain contract. Use `Decimal` for human economic values, `CurrencyAmount`/asset-tagged amounts for token quantities, and `bigint` for atomic integers, basis points, counts, slots, and timestamps.
+
+## 20.1 Simulation result contracts
+
+```ts
+type SimulationKind = "deterministic" | "stochastic";
+type SimulationRunStatus = "completed" | "partial" | "failed";
+
+type AgentArchetype =
+  | "retail-buyer"
+  | "whale"
+  | "sniper"
+  | "momentum-trader"
+  | "profit-taker"
+  | "panic-seller"
+  | "random-trader";
+
+type DistributionSummary<Value> = {
+  median: Value;
+  p95?: Value;
+};
+
+type SimulationRunMetadata = {
+  id: string;
+  engineVersion: string;
+  sdkVersion: string;
+  startedAtSeconds: bigint;
+  completedAtSeconds?: bigint;
+};
+
+type SimulationFailure = {
+  code: string;
+  message: string;
+};
+
+type DeterministicSimulationMetrics = {
+  migrated: boolean;
+  finalSpotPrice: Decimal;
+  finalMigrationPrice?: Decimal;
+  finalMigrationFdv?: Decimal;
+  quoteAccumulated: AssetAmount<"quote">;
+  baseDistributed: AssetAmount<"base">;
+  baseDistributedBps: bigint;
+  maximumPriceImpactBps: bigint;
+  maximumDrawdownBps: bigint;
+  feesGenerated: AssetAmountPair;
+};
+
+type DeterministicSimulationResult = SimulationRunMetadata & {
+  kind: "deterministic";
+  status: "completed" | "partial";
+  initialState: PoolState;
+  finalState: PoolState;
+  trades: readonly TradeResult[];
+  metrics: DeterministicSimulationMetrics;
+  verificationStatus: VerificationStatus;
+};
+
+type AgentCounts = Record<AgentArchetype, bigint>;
+
+type StochasticSimulationSummary = {
+  graduationFrequencyBps: bigint;
+  quoteAccumulated: DistributionSummary<AssetAmount<"quote">>;
+  baseDistributed: DistributionSummary<AssetAmount<"base">>;
+  timeToMigrationSeconds?: DistributionSummary<bigint>;
+  maximumDrawdownBps: DistributionSummary<bigint>;
+  topHolderConcentrationBps?: DistributionSummary<bigint>;
+  topTenHolderConcentrationBps?: DistributionSummary<bigint>;
+  creatorFees?: DistributionSummary<AssetAmountPair>;
+  sniperExtractionQuote?: DistributionSummary<AssetAmount<"quote">>;
+};
+
+type StochasticSimulationResult = SimulationRunMetadata & {
+  kind: "stochastic";
+  status: "completed" | "partial";
+  randomSeed: bigint;
+  requestedIterations: bigint;
+  completedIterations: bigint;
+  agentCounts: AgentCounts;
+  summary: StochasticSimulationSummary;
+};
+
+type FailedSimulationResult = SimulationRunMetadata & {
+  kind: SimulationKind;
+  status: "failed";
+  failure: SimulationFailure;
+};
+
+type SimulationResult =
+  | DeterministicSimulationResult
+  | StochasticSimulationResult
+  | FailedSimulationResult;
+```
+
+Amounts tagged `"quote"` or `"base"` are atomic token quantities with explicit decimals. Prices and FDV are human-unit `Decimal` values. Basis points use `10_000n` for 100%; time and iteration counts use `bigint`. Deterministic results preserve initial/final pool snapshots and trade outputs. Stochastic distribution fields summarize completed iterations; omitted metrics mean unavailable/not applicable, not zero.
+
+## 20.2 Attack result contracts
+
+```ts
+type AttackScenario =
+  | "opening-sniper"
+  | "whale-entry"
+  | "pump-and-dump"
+  | "sell-cascade"
+  | "fee-schedule-timing";
+
+type AttackRunStatus = "completed" | "partial" | "failed";
+
+type AttackRunMetadata = {
+  id: string;
+  randomSeed: bigint;
+  requestedIterations: bigint;
+  completedIterations: bigint;
+  engineVersion: string;
+  sdkVersion: string;
+  startedAtSeconds: bigint;
+  completedAtSeconds?: bigint;
+};
+
+type AttackFailure = { code: string; message: string };
+
+type OpeningSniperMetrics = {
+  attackerPnlQuote: DistributionSummary<AssetAmount<"quote">>;
+  lateBuyerPriceDisadvantageBps: DistributionSummary<bigint>;
+  drawdownAfterExitBps: DistributionSummary<bigint>;
+  feesPaid: DistributionSummary<AssetAmountPair>;
+};
+
+type WhaleEntryMetrics = {
+  priceDisplacementBps: DistributionSummary<bigint>;
+  baseAcquired: DistributionSummary<AssetAmount<"base">>;
+  averageExecutionPrice: DistributionSummary<Decimal>;
+  postBuyConcentrationBps: DistributionSummary<bigint>;
+};
+
+type PumpAndDumpMetrics = {
+  attackerPnlQuote: DistributionSummary<AssetAmount<"quote">>;
+  peakToTroughDrawdownBps: DistributionSummary<bigint>;
+  lateBuyerLossBps: DistributionSummary<bigint>;
+  recoveryQuoteRequired: DistributionSummary<AssetAmount<"quote">>;
+  feesPaid: DistributionSummary<AssetAmountPair>;
+};
+
+type SellCascadeMetrics = {
+  maximumDrawdownBps: DistributionSummary<bigint>;
+  quoteOutflow: DistributionSummary<AssetAmount<"quote">>;
+  recoveryQuoteRequired: DistributionSummary<AssetAmount<"quote">>;
+  migrationDelaySeconds: DistributionSummary<bigint>;
+};
+
+type FeeScheduleTimingMetrics = {
+  bestEntryClock: SimulationClock;
+  feesSaved: DistributionSummary<AssetAmount>;
+  pnlImprovementQuote: DistributionSummary<AssetAmount<"quote">>;
+};
+
+type CompletedAttackResult<Scenario extends AttackScenario, Metrics> =
+  AttackRunMetadata & {
+    scenario: Scenario;
+    status: "completed" | "partial";
+    metrics: Metrics;
+  };
+
+type FailedAttackResult = AttackRunMetadata & {
+  scenario: AttackScenario;
+  status: "failed";
+  failure: AttackFailure;
+};
+
+type AttackResult =
+  | CompletedAttackResult<"opening-sniper", OpeningSniperMetrics>
+  | CompletedAttackResult<"whale-entry", WhaleEntryMetrics>
+  | CompletedAttackResult<"pump-and-dump", PumpAndDumpMetrics>
+  | CompletedAttackResult<"sell-cascade", SellCascadeMetrics>
+  | CompletedAttackResult<"fee-schedule-timing", FeeScheduleTimingMetrics>
+  | FailedAttackResult;
+```
+
+Quote/base quantities are asset-tagged atomic amounts. Prices are `Decimal`, percentages/concentration/drawdown are basis points, and durations/iteration counts use `bigint`. Attack metrics summarize the seeded runs; the scenario does not imply that its assumed participants or behavior represent real users.
+
+## 20.3 Audit finding and evidence contracts
+
+```ts
+type AuditSeverity = "LOW" | "MODERATE" | "HIGH";
+
+type AuditFindingCategory =
+  | "price-stability"
+  | "concentration"
+  | "early-advantage"
+  | "sniper-exposure"
+  | "exit-liquidity-sensitivity"
+  | "migration-fragility"
+  | "fee-shock"
+  | "surplus-behavior"
+  | "post-migration-liquidity";
+
+type AuditEvidenceSource =
+  | "deterministic-simulation"
+  | "stochastic-simulation"
+  | "adversarial-simulation"
+  | "sdk-parity"
+  | "on-chain";
+
+type AuditEvidenceValue =
+  | { kind: "amount"; value: AssetAmount }
+  | { kind: "basis-points"; value: bigint }
+  | { kind: "decimal"; value: Decimal }
+  | { kind: "duration-seconds"; value: bigint }
+  | { kind: "count"; value: bigint };
+
+type AuditEvidence = {
+  source: AuditEvidenceSource;
+  reference: string;
+  metric: string;
+  value: AuditEvidenceValue;
+};
+
+type AuditFinding = {
+  id: string;
+  ruleId: string;
+  category: AuditFindingCategory;
+  severity: AuditSeverity;
+  title: string;
+  summary: string;
+  evidence: readonly [AuditEvidence, ...AuditEvidence[]];
+  suggestedRemediations: readonly string[];
+};
+```
+
+Each evidence reference must resolve to a retained run, parity case, or on-chain observation and identify the exact metric/unit. A finding must not claim stronger evidence than its source supports. Remediations are suggestions tied to controllable inputs and must state material trade-offs; findings are not guarantees or a single-number safety score.
+
+## 20.4 Deployment record contracts
+
+```ts
+type DeploymentStatus =
+  | "prepared"
+  | "awaiting-user-approval"
+  | "rejected"
+  | "submitted"
+  | "confirmed"
+  | "verified"
+  | "failed";
+
+type DeploymentApproval = {
+  status: "pending" | "approved" | "rejected";
+  recordedAtSeconds?: bigint;
+  approverAddress?: string;
+};
+
+type DeploymentVerificationStatus =
+  | "not-started"
+  | "pending"
+  | "verified"
+  | "mismatch"
+  | "failed";
+
+type DeploymentMismatch = {
+  path: string;
+  expected: string;
+  actual: string;
+};
+
+type DeploymentVerification = {
+  status: DeploymentVerificationStatus;
+  checkedAtSlot?: bigint;
+  mismatches: readonly DeploymentMismatch[];
+};
+
+type DeploymentRecord = {
+  id: string;
+  candidateId: string;
+  network: "devnet";
+  status: DeploymentStatus;
+  approval: DeploymentApproval;
+  configAddress?: string;
+  poolAddress?: string;
+  transactionSignatures: readonly string[];
+  engineVersion: string;
+  sdkVersion: string;
+  preparedAtSeconds: bigint;
+  submittedAtSeconds?: bigint;
+  confirmedSlot?: bigint;
+  verifiedAtSeconds?: bigint;
+  verification: DeploymentVerification;
+};
+```
+
+The status fields describe lifecycle evidence, not authorization logic: runtime validation must enforce legal transitions and require recorded explicit user approval before signing or broadcast. Only public chain identifiers and transaction data belong in this record; never include private keys, seed phrases, signer objects, or other signing material. `verified` requires fetched on-chain state and a completed comparison; mismatches remain explicit and must not be hidden by a successful transaction confirmation.
+
+## 20.5 Shared validation, solver, and verification statuses
+
+```ts
+type ValidationStatus = "valid" | "invalid";
+
+type SolverStatus = "satisfied" | "partial" | "unsatisfied";
+
+type VerificationStatus =
+  | "unverified"
+  | "sdk-validated"
+  | "sdk-parity-verified"
+  | "on-chain-verified";
+```
+
+Validation status describes whether an input conforms to its domain schema and constraints. A valid intent result includes its normalized intent; a valid curve result includes the checked curve. An invalid result includes validation issues and must not contain a normalized intent or accepted curve.
+
+Solver status describes economic constraint satisfaction, not validation or protocol evidence. `satisfied` means all requested constraints are met within their defined tolerances. `partial` means a candidate exists but one or more requested constraints remain unmet and must be identified. `unsatisfied` means no candidate can meet the solver's feasibility requirements; it has no deployable candidate.
+
+Verification status records evidence actually completed for a candidate: `unverified` means no SDK validation or stronger check has completed; `sdk-validated` means the pinned SDK accepted the candidate; `sdk-parity-verified` means the applicable protocol outputs were compared against the pinned SDK under the parity policy in §3.5; and `on-chain-verified` means fetched chain state was compared against the candidate. Do not infer a stronger status from a weaker check. These statuses are distinct from the deployment lifecycle and verification statuses in §20.4 and do not by themselves authorize deployment.
+
+Simulation and attack run statuses, audit severity, and deployment lifecycle statuses remain domain-specific because they describe different outcome axes; they must not be substituted for validation, solver, or verification status.
+
+## 20.6 Configuration validation
+
+`validateFeeConfiguration(input: unknown)` and `validateMigrationConfiguration(input: unknown)` accept normalized domain-shaped objects and return a `ConfigurationValidationResult<T>`. Monetary percentages and protocol parameters at this boundary are `bigint`; the external `MarketIntent` continues to accept decimal strings and is validated/normalized under §7.1. Unknown fields and invalid values produce path-specific issues; invalid configurations must not be compiled.
+
+```ts
+type ConfigurationValidationIssue = {
+  path: string;
+  code: string;
+  message: string;
+};
+
+type ConfigurationValidationResult<Value> =
+  | { status: "valid"; value: Value }
+  | { status: "invalid"; issues: readonly ConfigurationValidationIssue[] };
+```
+
+The pure domain validators enforce supported units and domain-level ranges before compilation: base fees are 25–9,900 bps; scheduled periods fit `u16`, period frequency fits `u64`, and the accepted schedule is strictly declining; dynamic-fee bin step is 1 bp, filter period is shorter than decay period, reduction factor is at most 10,000 bps, and volatility/control values fit `u24`. SDK percentage inputs must be representable as whole percentages (basis points divisible by 100): creator trading-fee share and DAMM v2 liquidity buckets use 0–100%; migration fee uses 0–99%, with creator share 0–100% and zero when migration fee is zero. Migrated-pool fees are 10–1,000 bps; compounding mode requires a 1–10,000 bps compounding fee and other modes reject that field. Allocation intent must sum to 10,000 bps with at least 1,000 bps assigned to locked intent; six DAMM v2 liquidity buckets must sum to 10,000 bps. A supplied lock duration must be positive and no greater than two years.
+
+These checks do not replace the pinned SDK's `validateConfigParameters` or establish protocol parity. In particular, the domain allocation shape does not include vesting schedules, so it cannot prove that at least 10% remains locked one day after migration. The SDK adapter must validate the complete schedule with `validateMinimumLockedLiquidity` before any configuration is accepted for compilation or deployment.
 
 ---
 
@@ -1686,7 +2284,7 @@ vs
 Meteora SDK quote
 ```
 
-Fail if error exceeds an acceptable tolerance.
+Require exact equality for encoded fields, atomic amounts, fees, and migration outputs. If a particular SDK helper uses an approximation that makes exact parity impossible, isolate that helper and document a maximum one-atomic-unit tolerance for that helper only. Human-readable display values use formatting tests rather than economic tolerances.
 
 This is essential.
 
@@ -2277,12 +2875,34 @@ Input:
 
 ```json
 {
-  "tokenSupply": "1000000000",
-  "startFdv": 200000,
-  "migrationFdv": 2000000,
-  "quoteTarget": 150000,
-  "targetBaseDistributionPct": 25,
-  "maxSegments": 3
+  "assets": {
+    "base": {
+      "symbol": "MKT",
+      "decimals": 9
+    },
+    "quote": {
+      "symbol": "USDC",
+      "decimals": 6
+    }
+  },
+  "supply": {
+    "totalBase": "1000000000"
+  },
+  "pricing": {
+    "startFdv": "200000",
+    "migrationFdv": "2000000"
+  },
+  "targets": {
+    "quoteToMigration": "150000",
+    "baseDistributionPct": "25"
+  },
+  "preferences": {
+    "launchProfile": "balanced",
+    "sniperResistance": "high"
+  },
+  "solver": {
+    "maxSegments": 3
+  }
 }
 ```
 
@@ -2365,9 +2985,9 @@ That alignment matters.
 
 These should be resolved during implementation:
 
-1. Exact current SDK representation of curve points.
+1. Exact local-to-SDK price/liquidity encoding and rounding parity.
 2. Integer precision and rounding behavior.
-3. Exact maximum supported curve segments in the currently deployed DBC program.
+3. Legacy stored curve-entry interpretation and segment limits for any future import path.
 4. Exact fixed-vs-dynamic supply constraints.
 5. Dynamic-fee state evolution.
 6. Fee scheduler timestamp / slot semantics.
@@ -2403,6 +3023,8 @@ Official Meteora concepts relevant to this specification:
 - Token-2022
 - Transfer hooks
 - Partner / creator liquidity allocation
+
+See [`PROTOCOL_NOTES.md`](./PROTOCOL_NOTES.md) for the current SDK pin, official source links, verified protocol facts, and open parity questions. That note is evidence and a planning aid; the deployed program and pinned SDK remain authoritative.
 
 Recommended implementation rule:
 
