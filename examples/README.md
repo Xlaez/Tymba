@@ -2,6 +2,10 @@
 
 `demo-market.json` is a `MarketIntent` object as defined by `src/domain/market-intent.ts` and `spec.md` §7.1. It has no wrapper object or simulator-specific fields. Every economic decimal is a JSON string; asset decimals and `solver.maxSegments` are structural integers.
 
+`demo-migration.json` is the versioned `demo-v1` **seeded Devnet deployment profile**, not a recommended production configuration. Its nested `migration` object preserves the original seeded migration values. The surrounding profile makes explicit the fixed 1B base supply, 9-decimal base token, 6-decimal Circle Devnet USDC candidate, disabled base-token vesting, one-day single-tranche DAMM v2 liquidity vesting assumption, zero pool-creation fee, runtime deployer roles, and simulator-only slot zero. `sdkMapping` spells out the customizable migration fee option and pinned SDK DAMM v2 time-linear base-fee mode with a zero-period market-cap scheduler. `allocationIntent` remains separate from the six SDK allocation buckets.
+
+The metadata fixture is [`devnet-token-metadata.json`](./devnet-token-metadata.json), with the relative image [`devnet-token-metadata.svg`](./devnet-token-metadata.svg). Publish both at a stable HTTPS or IPFS location before resolving the metadata URI. The profile deliberately uses `DEVNET_METADATA_URI_REQUIRED`; no example or unverified URL may be used for a transaction.
+
 `demo-market.ts` is a separate Phase 3 simulator fixture. Its hand-authored curve and migration settlement are illustrative and explicitly unverified; they are not compiled from `demo-market.json` and do not establish that the intent constraints are satisfied. That connection belongs to the Phase 4 solver/compiler.
 
 Validate the canonical intent and the sample fee and migration configurations with:
@@ -11,7 +15,7 @@ pnpm tymba validate examples/demo-market.json --fees examples/demo-fees.json --m
 pnpm tymba validate examples/demo-market.json --json
 ```
 
-The optional configuration files represent protocol-sized integer fields as decimal strings at the JSON boundary. Add `--json` for a machine-readable validation report. Validation checks the domain contract; it does not establish Meteora SDK parity or devnet support.
+The optional configuration files represent protocol-sized integer fields as decimal strings at the JSON boundary. The validator unwraps the versioned profile's `migration` member and validates the seeded migration contract. Add `--json` for a machine-readable validation report. This domain check does not establish live quote-mint support or on-chain deployment parity.
 
 `compile` accepts a request envelope with the canonical `marketIntent`, explicit objective weights, and explicit deterministic simulation configuration. Run the tracked request with:
 
@@ -20,7 +24,7 @@ pnpm tymba compile examples/demo-compile-request.json
 pnpm tymba compile examples/demo-compile-request.json --json
 ```
 
-At this phase the command returns simulator-checked, pinned-SDK curve-validated drafts but remains `blocked` and exits non-zero: their protocol `verificationStatus` remains `unverified` because complete DBC configuration and token-supply validation are not implemented. It emits no deployable candidate or protocol configuration. Passing only `examples/demo-market.json` also fails clearly because solver weights and simulation settings are not inferred.
+The compile command returns simulator-checked, pinned-SDK curve-validated drafts but remains `blocked` and exits non-zero: their protocol `verificationStatus` remains `unverified`, and the CLI emits no deployable candidate. The separate Phase 8 `buildCandidate()` API combines a draft with the explicit `demo-v1` profile and assembles/serializes a complete offline SDK candidate. It defers only receiver-dependent SDK supply validation until an actual deployer wallet is resolved; fixed-supply bounds are checked using pinned SDK helpers. Passing only `examples/demo-market.json` to `compile` still fails because solver weights and simulation settings are not inferred.
 
 Run a seeded opening-sniper attack against the solver-generated curve draft with:
 

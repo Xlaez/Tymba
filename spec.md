@@ -1717,6 +1717,18 @@ Validate the exact assembled configuration synchronously immediately before invo
 
 `recordExplicitDeploymentDecision` records only an explicit approve/reject decision from the transaction's fee-payer address and binds it to the preview digest. Any future wallet adapter must route signing/broadcast through `executeAfterExplicitDeploymentApproval`, which snapshots the unsigned transaction, recomputes its digest and required signer list, and checks the still-connected fee payer, pinned Devnet identity, confirmed block height, and blockhash expiry before invoking the action with that snapshot. Missing, rejected, stale, mismatched, or unavailable approval evidence must not invoke that callback. This gate is a domain adapter and is not yet wired to a wallet-signing or broadcast path.
 
+## 14.3 Seeded Devnet deployment profile
+
+`examples/demo-migration.json` is schema version 1 of the explicitly seeded `demo-v1` Devnet fixture. It is for deterministic judging and review, not a recommended production configuration. Its nested `migration` object preserves the original demo migration values. The profile additionally records the 1B fixed base supply, 9-decimal base token, 6-decimal Circle Devnet USDC candidate, zero pool-creation fee, disabled base-token vesting, simulator-only slot zero, and runtime-deployer wallet roles. The six explicit creator/partner liquidity buckets map directly to SDK percentages; the three-part `allocationIntent` remains a separate intent and is not used to derive those buckets. `sdkMapping` explicitly chooses the pinned SDK's customizable migration-fee option, DAMM v2 time-linear base-fee mode, and zero-period market-cap fee scheduler, so the 100 bps migrated-pool fee has no schedule progression. This SDK mapping is fixture configuration, not an additional value silently inferred from the original migration object.
+
+The original migration input does not define the DAMM v2 vesting duration. `demo-v1` explicitly assumes one tranche after one day, with no cliff, for each 20% vesting bucket. This assumption is sourced from the fixture's one-day `allocationIntent.lockDurationSeconds`; it is an added Devnet fixture assumption, not a value inferred by the protocol. Fixed-supply excess is calculated from pinned SDK supply helpers and routed to the deployer as leftover receiver after wallet resolution.
+
+The candidate builder can run offline with no wallet or RPC. It validates the non-address-dependent SDK configuration parameters, uses pinned SDK helpers to check fixed-supply bounds, preserves the exact quantized compiler curve, and serializes all BN/fixed-point values as decimal strings. Full `validateCompleteSdkConfigCandidate` runs again with the actual runtime deployer as leftover receiver immediately before SDK transaction construction. The transaction adapter binds payer, pool creator, fee claimer, and leftover receiver to that same explicitly connected Devnet wallet. Config and base-mint signer keypairs are runtime-only values held outside the candidate and report.
+
+The profile points to [`examples/devnet-token-metadata.json`](./examples/devnet-token-metadata.json) and its relative image asset. The assets are not hosted and the candidate carries `DEVNET_METADATA_URI_REQUIRED`; there is no example URL. Transaction construction and send readiness reject unresolved or placeholder metadata. The metadata URI must be replaced only after publishing the fixture at a stable HTTPS or IPFS URL. The Devnet USDC mint is also a candidate until read-only on-chain mint checks and DAMM v2 migration reachability have passed.
+
+`prepareDeployment()` means structurally validated and safely serialized; it does not mean transaction approval. `sendDeployment()` currently evaluates readiness only: candidate, matching runtime wallet, non-placeholder metadata URI, Devnet endpoint/genesis, successful preflight and simulation for the same message digest, and explicit approval for that digest and wallet must all be present. The current implementation returns `broadcast: "not-invoked"`; no signer or broadcaster is wired. Fixture, candidate, and transaction-builder automated checks use local SDK code and mocked RPC responses. No live Devnet request, signature, or transaction is evidence for this increment.
+
 ---
 
 # 15. Transfer Hooks
@@ -2599,7 +2611,7 @@ type DeploymentRecord = {
 
 The status fields describe lifecycle evidence, not authorization logic: runtime validation must enforce legal transitions and require recorded explicit user approval before signing or broadcast. An approval is bound to the exact fee-quoted message digest and fee-payer wallet address. Immediately before an approved action, recompute the digest from the unsigned transaction, confirm the same wallet is connected, recheck the pinned Devnet endpoint/genesis and blockhash lifetime, and stop on any mismatch or unavailable check. Only public chain identifiers and transaction data belong in this record; never include private keys, seed phrases, signer objects, or other signing material. `verified` requires fetched on-chain state and a completed comparison; mismatches remain explicit and must not be hidden by a successful transaction confirmation.
 
-The current web preflight checks the fixed Solana Devnet RPC identity and a connected wallet's public Devnet account plus legacy-transaction capability. This is access readiness only: it creates no `DeploymentRecord`, validates no assembled SDK configuration or balance, and does not build, sign, or send a transaction. The budget adapter is tested separately but is not yet wired to the SDK transaction builder or the web preflight. A passing preflight must not advance deployment or candidate verification status.
+The current web preflight checks the fixed Solana Devnet RPC identity and a connected wallet's public Devnet account plus legacy-transaction capability. This is access readiness only: it creates no `DeploymentRecord`, validates no assembled SDK configuration or balance, and does not build, sign, or send a transaction. The `demo-v1` adapter can independently build and validate an offline candidate and can assemble an unsigned config-and-pool transaction after runtime wallet and metadata resolution. The budget, preview, simulation, and approval evidence have not yet been wired to the web flow or to a broadcaster. A passing preflight must not advance deployment or candidate verification status.
 
 ## 20.5 Shared validation, solver, and verification statuses
 
@@ -2701,6 +2713,38 @@ type MarketAuditReportV1 = {
 ```
 
 The implementation is in `src/web/report.ts`. Sensitive object fields matching private-key, API-key, authentication-token, credential, secret, mnemonic, seed-phrase, signer, keypair, or signing-material names are excluded recursively. Simulation random seeds remain included because they reproduce modeled runs and are not wallet or signing secrets. Reports contain no wallet signing material, private keys, credentials, or deployment approval data. Version 1 is an exported artifact; it does not imply persistence, a hosted share link, SDK full-config validation, or on-chain verification.
+
+## 20.8 Versioned deployment candidate
+
+`DeploymentCandidate` is a versioned offline artifact. It is distinct from an approved transaction and from a `DeploymentRecord`:
+
+```ts
+type DeploymentCandidate = {
+  schemaVersion: 1;
+  profileId: "demo-v1";
+  network: "devnet";
+  market: CompiledMarket & {
+    objectiveWeights: JsonValue;
+    deploymentConfiguration: {
+      baseToken: { name: string; symbol: string; decimals: 9; supplyMode: "fixed"; totalSupply: string };
+      quoteToken: { symbol: "USDC"; decimals: 6; mint: string; liveVerification: "required-before-transaction-preflight" };
+      poolCreationFeeLamports: string;
+    };
+  };
+  migration: MigrationConfiguration;
+  authority: { mode: "runtime-deployer"; publicKey?: string };
+  metadata: { uri: string; status: "unresolved" | "resolved"; assetPath: string };
+  sdkConfig: JsonValue;
+  sdkValidation: JsonValue;
+  assumptions: readonly string[];
+};
+```
+
+An unresolved candidate is complete enough for offline SDK assembly, validation, deterministic serialization, and review. It carries no invented authority address or signer material. The `sdkValidation` evidence states that SDK config parameter validation deferred receiver-dependent supply validation and that fixed-supply bounds were checked separately with pinned SDK helpers. Resolving the deployer supplies a real public key for the leftover receiver and reruns the full SDK validator before transaction construction.
+
+`buildCandidate()` selects a deterministic compiled curve draft and maps the versioned profile into pinned SDK 1.5.13 parameters. `prepareDeployment()` rejects structurally incomplete or internally inconsistent candidates, canonicalizes protocol integers as decimal strings, and computes a SHA-256 digest of the serialized candidate. This digest identifies candidate contents; it is not a transaction-message digest and is not user approval.
+
+The runtime candidate adapter requires a connected wallet matching `authority.publicKey` and a resolved HTTPS/IPFS metadata URI before constructing the SDK config-and-pool transaction. The low-level builder verifies the Devnet genesis, classic SPL quote mint, and quote decimals before returning an unsigned transaction. The transaction must subsequently pass budget, preview, simulation, and digest-bound explicit approval. The current `sendDeployment()` is a readiness gate only and does not sign or broadcast. Candidate and transaction artifacts must never contain private keys, secrets, or wallet signing material.
 
 ---
 
@@ -3308,9 +3352,9 @@ Convert metrics into findings and suggested remediations.
 
 ## Phase 6 — UI
 
-Current root web implementation connects reviewed structured intent, curve-draft compilation and visualization, deterministic scripts, five explicit attack models, evidence-backed audits with a versioned heuristic policy, paired numeric-objective hardening, exact advanced curve units, and versioned audit report export. A read-only Devnet and wallet preflight is now available after candidate selection. A pinned-SDK Devnet config transaction builder exists for fully validated candidates, but is not wired to the web flow, budget/preview adapters, wallet, or submission path; outputs remain modeled/unverified and non-deployable. The web audit lacks standalone stochastic-cohort and paired late-capital-stress inputs; absent categories remain unavailable. Hardening requires a retained script, reviewed stochastic population/seed, and retained attack configurations without warm-ups. Budget/preview wiring, pool initialization, approval UI, destination LP settlement, actual deployment, on-chain verification, and automatic prose interpretation remain separate pending work. Editing source inputs invalidates dependent results.
+Current root web implementation connects reviewed structured intent, curve-draft compilation and visualization, deterministic scripts, five explicit attack models, evidence-backed audits with a versioned heuristic policy, paired numeric-objective hardening, exact advanced curve units, and versioned audit report export. A read-only Devnet and wallet preflight is available after candidate selection. Phase 8 now has the schema-versioned seeded `demo-v1` profile, offline candidate assembly/validation/serialization, runtime wallet and metadata resolution, and unsigned pinned-SDK config/pool transaction assembly. The budget, preview/simulation, and explicit approval gates are still separate adapters and are not wired to the studio or a broadcaster. Live send, deployment record persistence, on-chain state fetch, parity verification, and automatic prose interpretation remain open. The web audit lacks standalone stochastic-cohort and paired late-capital-stress inputs; absent categories remain unavailable. Hardening requires a retained script, reviewed stochastic population/seed, and retained attack configurations without warm-ups. Editing source inputs invalidates dependent results.
 
-`buildMeteoraMarketTransaction` is an additional low-level Devnet adapter for an already complete SDK candidate. It revalidates the candidate immediately before the pinned SDK 1.5.13 combined config-and-pool builder, confirms the fixed Devnet genesis and a classic SPL quote mint with caller-specified decimals, requires token name/symbol/metadata URI, and returns an unsigned transaction plus derived public addresses, signer addresses, rent targets, and any configured pool-creation SOL debit. It rejects transactions that exceed Solana's legacy wire-packet limit. The current-source account lengths are marked unverified against the deployed Devnet programs; the transaction is not connected to the studio and nothing is signed or submitted. The compile pipeline still emits no complete SDK candidate, so this adapter cannot deploy current studio drafts.
+`buildDemoV1MarketTransaction` takes the offline candidate plus a connected deployer public key, config/base-mint signer public keys, and a Devnet connection. It refuses unresolved authority or metadata before RPC use, binds the deployer to payer, pool creator, fee claimer, and leftover receiver, and delegates to `buildMeteoraMarketTransaction`. That low-level Devnet adapter revalidates the fully assembled candidate immediately before the pinned SDK 1.5.13 combined config-and-pool builder, confirms the fixed Devnet genesis and a classic SPL quote mint with the fixture's six decimals, requires token name/symbol/metadata URI, and returns an unsigned transaction plus derived public addresses, signer addresses, rent targets, and any configured pool-creation SOL debit. It rejects transactions that exceed Solana's legacy wire-packet limit. The current-source account lengths are marked unverified against the deployed Devnet programs; tests mock identity and quote-mint reads, and nothing is signed or submitted. The compile CLI still emits curve drafts only; the separate deployment API uses the seeded profile and does not yet connect to the studio.
 
 The product-flow claims boundary uses shared, visible stage-specific evidence notices (`src/web/evidence.ts`, `src/web/EvidenceNotice.tsx`). Compile scope warnings are not hidden behind details. Satisfied core targets do not promise demand or fundraising; curve/script completion does not prove on-chain migration; attack percentiles are sample observations, not future bounds. LOW/MODERATE/HIGH remain provisional versioned heuristic classifications, not safety certificates, and missing evidence is not zero risk. Hardening run completion is distinct from per-metric improvement under tested inputs; partial comparisons remain explicitly partial and unavailable comparisons have no improvement assessment. These presentation constraints do not change domain metrics, policy thresholds, or verification status.
 
@@ -3350,7 +3394,7 @@ Example:
 pnpm tymba compile examples/demo-compile-request.json
 ```
 
-The compile-request envelope contains the canonical `MarketIntent`, explicit objective weights, and deterministic simulator configuration. `MarketIntent` remains the economic input; objective weights and simulator state are separate and must not be silently defaulted. See `examples/demo-compile-request.json` for a full request. A MarketIntent-only file is rejected with a clear request for the missing solver configuration. Until the pinned SDK's complete DBC configuration and token-supply validators are wired into compilation, the CLI may return simulator-checked, SDK-curve-validated drafts with a `blocked` status; their protocol `verificationStatus` remains `unverified`, and no deployable configuration may be emitted.
+The compile-request envelope contains the canonical `MarketIntent`, explicit objective weights, and deterministic simulator configuration. `MarketIntent` remains the economic input; objective weights and simulator state are separate and must not be silently defaulted. See `examples/demo-compile-request.json` for a full request. A MarketIntent-only file is rejected with a clear request for the missing solver configuration. The compile CLI returns simulator-checked, SDK-curve-validated drafts with a `blocked` status; their protocol `verificationStatus` remains `unverified`, and no deployable configuration is emitted from that command. Separately, the Phase 8 `buildCandidate()` API combines the tracked compile request with versioned profile `demo-v1` to create and serialize a complete offline SDK candidate; it defers runtime receiver-dependent validation and is not wired to the studio or compile CLI.
 
 The following is the `marketIntent` portion of the compile request:
 

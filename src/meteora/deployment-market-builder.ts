@@ -239,24 +239,23 @@ function validateBuildInput(input: MeteoraMarketTransactionBuildInput) {
     );
   }
 
-  const signerAndConfigAddresses = [
+  const independentAddresses = [
     input.config,
     input.baseMint,
-    input.feeClaimer,
     input.quoteMint,
-    input.payer,
-    candidate.value.leftoverReceiver,
     input.tokenBadge,
   ].filter(validPublicKey);
-  if (
-    new Set(signerAndConfigAddresses.map((address) => address.toBase58())).size !==
-    signerAndConfigAddresses.length
-  ) {
+  const deployerRoleAddresses = [input.payer, input.feeClaimer, candidate.value.leftoverReceiver];
+  const independentAddressSet = new Set(independentAddresses.map((address) => address.toBase58()));
+  const independentCollision =
+    independentAddressSet.size !== independentAddresses.length ||
+    deployerRoleAddresses.some((address) => independentAddressSet.has(address.toBase58()));
+  if (independentCollision) {
     issues.push(
       issue(
         "$",
         "deployment_address_collision",
-        "Config, mint, wallet, and configuration account addresses must be distinct.",
+        "Config, mint, and optional token badge addresses must be distinct from each other and the deployer wallet.",
       ),
     );
   }

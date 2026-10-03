@@ -136,9 +136,10 @@ function validateOptionalConfiguration(
 ): Readonly<{ status: CliConfigurationStatus; issues: readonly CliValidationIssue[] }> {
   if (input === undefined) return { status: "not-provided", issues: [] };
 
+  const configuration = kind === "migration" ? unwrapMigrationProfile(input) : input;
   let normalized: unknown;
   try {
-    normalized = convertConfigBigintStrings(input, `$.${kind}`);
+    normalized = convertConfigBigintStrings(configuration, `$.${kind}`);
   } catch (error) {
     return {
       status: "invalid",
@@ -162,6 +163,14 @@ function validateOptionalConfiguration(
   return result.status === "valid"
     ? { status: "valid", issues: [] }
     : { status: "invalid", issues: mapConfigurationIssues(kind, result.issues) };
+}
+
+function unwrapMigrationProfile(input: unknown): unknown {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const profile = input as Record<string, unknown>;
+  if (profile.profileId !== "demo-v1") return input;
+  if (profile.schemaVersion !== 1 || profile.network !== "devnet") return input;
+  return profile.migration;
 }
 
 export function convertConfigBigintStrings(value: unknown, path: string): unknown {

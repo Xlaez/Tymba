@@ -1,31 +1,113 @@
 {
-  "destination": "damm-v2",
-  "fee": {
-    "feeBps": "1000",
-    "creatorFeeShareBps": "5000"
-  },
-  "allocationIntent": {
-    "creatorLockedBps": "500",
-    "partnerLockedBps": "500",
-    "unlockedBps": "9000",
-    "lockDurationSeconds": "86400"
-  },
-  "liquidityAllocation": {
-    "creator": {
-      "unlockedBps": "2000",
-      "permanentlyLockedBps": "1000",
-      "vestingBps": "2000"
+  "profileId": "demo-v1",
+  "schemaVersion": 1,
+  "network": "devnet",
+  "classification": "seeded-devnet-demo-only",
+  "market": {
+    "compileRequest": "demo-compile-request.json",
+    "baseToken": {
+      "type": "spl-token",
+      "name": "Tymba Devnet Demo",
+      "symbol": "MKT",
+      "decimals": 9,
+      "supplyMode": "fixed",
+      "totalSupply": "1000000000",
+      "leftoverPolicy": "derive-from-pinned-sdk-minimum-with-buffer",
+      "authorityMode": "runtime-deployer",
+      "tokenUpdateAuthority": "creator-update-authority"
     },
-    "partner": {
-      "unlockedBps": "2000",
-      "permanentlyLockedBps": "1000",
-      "vestingBps": "2000"
+    "quoteToken": {
+      "symbol": "USDC",
+      "decimals": 6,
+      "mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "liveVerification": "required-before-transaction-preflight"
+    },
+    "activationType": "slot",
+    "poolCreationFeeLamports": "0",
+    "enableFirstSwapWithMinFee": false,
+    "baseTokenVesting": {
+      "totalLockedVestingAmount": "0",
+      "numberOfVestingPeriod": 0,
+      "cliffUnlockAmount": "0",
+      "totalVestingDurationSeconds": "0",
+      "cliffDurationFromMigrationTimeSeconds": "0"
     }
   },
-  "migratedPoolFee": {
-    "feeBps": "100",
-    "collectFeeMode": "compounding",
-    "dynamicFeeEnabled": false,
-    "compoundingFeeBps": "500"
-  }
+  "migration": {
+    "destination": "damm-v2",
+    "fee": {
+      "feeBps": "1000",
+      "creatorFeeShareBps": "5000"
+    },
+    "allocationIntent": {
+      "creatorLockedBps": "500",
+      "partnerLockedBps": "500",
+      "unlockedBps": "9000",
+      "lockDurationSeconds": "86400"
+    },
+    "liquidityAllocation": {
+      "creator": {
+        "unlockedBps": "2000",
+        "permanentlyLockedBps": "1000",
+        "vestingBps": "2000"
+      },
+      "partner": {
+        "unlockedBps": "2000",
+        "permanentlyLockedBps": "1000",
+        "vestingBps": "2000"
+      }
+    },
+    "migratedPoolFee": {
+      "feeBps": "100",
+      "collectFeeMode": "compounding",
+      "dynamicFeeEnabled": false,
+      "compoundingFeeBps": "500"
+    }
+  },
+  "sdkMapping": {
+    "migrationFeeOption": "customizable",
+    "migratedPoolBaseFeeMode": "fee-time-scheduler-linear",
+    "marketCapFeeScheduler": {
+      "endingBaseFeeBps": 100,
+      "numberOfPeriod": 0,
+      "priceMultiple": 0,
+      "schedulerExpirationDuration": 0
+    }
+  },
+  "liquidityVestingSchedule": {
+    "durationSeconds": "86400",
+    "cliffDurationFromMigrationTimeSeconds": "0",
+    "periodCount": 1,
+    "bpsPerPeriod": "10000",
+    "basis": "migration.allocationIntent.lockDurationSeconds",
+    "assumption": "Each 20% liquidity vesting share is released in one tranche after one day, with no cliff."
+  },
+  "metadata": {
+    "assetPath": "examples/devnet-token-metadata.json",
+    "uri": "DEVNET_METADATA_URI_REQUIRED",
+    "status": "unresolved"
+  },
+  "runtimeBindings": {
+    "authorityMode": "runtime-deployer",
+    "deployerWalletFor": [
+      "payer",
+      "poolCreator",
+      "feeClaimer",
+      "leftoverReceiver",
+      "creatorUpdateAuthority"
+    ],
+    "configAndBaseMintSigners": "generated-at-runtime-and-held-in-memory"
+  },
+  "assumptions": [
+    "This is a deterministic Devnet review fixture, not a recommended production configuration.",
+    "The six explicit liquidityAllocation buckets map directly to SDK percentages; allocationIntent is retained as a separate input and is not expanded or substituted to derive those buckets.",
+    "Base-token vesting is disabled; the separate DAMM v2 liquidity vesting schedule is one release at the one-day lock duration.",
+    "Fixed-supply excess is calculated from the pinned SDK minimum supply with swap buffer and is assigned to the runtime deployer as leftover receiver.",
+    "The SDK custom-curve helper receives one equal weight per segment only to assemble the remaining SDK fields; its generated curve is discarded and replaced with the exact quantized compiler curve.",
+    "The compile fixture's slot zero is a simulator clock. The actual pool activation point is established when the pool is initialized.",
+    "The Circle Devnet USDC mint address is a candidate only until read-only live mint checks and the full migration gate pass.",
+    "The metadata JSON is local and unpublished. The URI placeholder must be replaced with a stable HTTPS or IPFS URL before transaction assembly for live use.",
+    "The connected deployer wallet is used for all listed runtime roles. Config and base-mint signer keypairs are created only at runtime and are not stored in this fixture or report.",
+    "The pinned SDK DAMM v2 mapping uses the time-linear base-fee mode with a zero-period market-cap scheduler; the seeded 100 bps migrated-pool fee therefore has no fee schedule progression."
+  ]
 }
