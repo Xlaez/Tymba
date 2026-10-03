@@ -74,6 +74,9 @@ describe("Devnet deployment balance and fee budget", () => {
         blockhashContextSlot: 100,
         balanceContextSlot: 101,
         feeContextSlot: 102,
+        feePayer: FEE_PAYER.toBase58(),
+        requiredSignerAddresses: [FEE_PAYER.toBase58()],
+        messageDigestHex: expect.stringMatching(/^[0-9a-f]{64}$/),
         availableLamports: 40_001n,
         networkFeeLamports: 5_000n,
         accountRentLamports: 10_000n,
@@ -128,10 +131,24 @@ describe("Devnet deployment balance and fee budget", () => {
         programId: RENT_ACCOUNT,
       }),
     );
-    const additionalSigner = await assessDeploymentBudget(
+    const undeclaredSigner = await assessDeploymentBudget(
       request(connectionFixture(), { transaction: additionalSignerTransaction }),
     );
-    expect(additionalSigner).toEqual({ status: "invalid", code: "additional_signer_required" });
+    expect(undeclaredSigner).toEqual({
+      status: "invalid",
+      code: "undeclared_signer_required",
+    });
+
+    const declaredSigner = await assessDeploymentBudget(
+      request(connectionFixture(), {
+        transaction: additionalSignerTransaction,
+        additionalSigners: [RECIPIENT],
+      }),
+    );
+    expect(declaredSigner).toMatchObject({
+      status: "sufficient",
+      evidence: { requiredSignerAddresses: [FEE_PAYER.toBase58(), RECIPIENT.toBase58()] },
+    });
 
     const repeatedRentAccount = await assessDeploymentBudget(
       request(connectionFixture(), {

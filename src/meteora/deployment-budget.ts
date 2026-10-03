@@ -1,5 +1,9 @@
 import { type Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { DEVNET_GENESIS_HASH, DEVNET_RPC_URL } from "./deployment-preflight.js";
+import {
+  compileLegacyTransactionMessage,
+  digestLegacyTransactionMessage,
+} from "./transaction-message.js";
 
 export type DeploymentRentAccount = Readonly<{
   address: PublicKey;
@@ -10,6 +14,7 @@ export type DeploymentBudgetRequest = Readonly<{
   connection: Connection;
   transaction: Transaction;
   feePayer: PublicKey;
+  additionalSigners?: readonly PublicKey[];
   accountsToCreate: readonly DeploymentRentAccount[];
   additionalLamportDebits: readonly bigint[];
 }>;
@@ -20,6 +25,9 @@ export type DeploymentBudgetEvidence = Readonly<{
   blockhashContextSlot: number;
   balanceContextSlot: number;
   feeContextSlot: number;
+  feePayer: string;
+  requiredSignerAddresses: readonly string[];
+  messageDigestHex: string;
   availableLamports: bigint;
   networkFeeLamports: bigint;
   accountRentLamports: bigint;
@@ -29,7 +37,8 @@ export type DeploymentBudgetEvidence = Readonly<{
 }>;
 
 export type DeploymentBudgetResult =
-  | Readonly<{ status: "sufficient" | "insufficient"; evidence: DeploymentBudgetEvidence }>
+  | Readonly<{ status: "sufficient"; evidence: DeploymentBudgetEvidence }>
+  | Readonly<{ status: "insufficient"; evidence: DeploymentBudgetEvidence }>
   | Readonly<{
       status: "invalid";
       code:
@@ -38,7 +47,10 @@ export type DeploymentBudgetResult =
         | "non_devnet_connection"
         | "transaction_has_no_instructions"
         | "transaction_already_signed"
-        | "additional_signer_required"
+        | "invalid_declared_signer"
+        | "duplicate_declared_signer"
+        | "undeclared_signer_required"
+        | "declared_signer_not_required"
         | "invalid_rent_account"
         | "rent_account_list_required"
         | "duplicate_rent_account"
@@ -55,6 +67,10 @@ export type DeploymentBudgetResult =
 
 function asLamports(value: number): bigint | undefined {
   return Number.isSafeInteger(value) && value >= 0 ? BigInt(value) : undefined;
+}
+
+function validContextSlot(value: number, minimum: number): boolean {
+  return Number.isSafeInteger(value) && value >= minimum;
 }
 
 export async function assessDeploymentBudget(
@@ -82,16 +98,19 @@ export async function assessDeploymentBudget(
   if (transaction.signatures.some((signature) => signature.signature !== null)) {
     return { status: "invalid", code: "transaction_already_signed" };
   }
-  const instructionSigners = new Set(
-    transaction.instructions.flatMap((instruction) =>
-      instruction.keys.filter((key) => key.isSigner).map((key) => key.pubkey.toBase58()),
-    ),
-  );
-  if (!instructionSigners.has(feePayer.toBase58())) {
-    return { status: "invalid", code: "fee_payer_mismatch" };
+  const declaredSigners = request.additionalSigners ?? [];
+  if (
+    !Array.isArray(declaredSigners) ||
+    declaredSigners.some((signer) => !(signer instanceof PublicKey))
+  ) {
+    return { status: "invalid", code: "invalid_declared_signer" };
   }
-  if ([...instructionSigners].some((signer) => signer !== feePayer.toBase58())) {
-    return { status: "invalid", code: "additional_signer_required" };
+  const declaredSignerAddresses = declaredSigners.map((signer) => signer.toBase58());
+  if (new Set(declaredSignerAddresses).size !== declaredSignerAddresses.length) {
+    return { status: "invalid", code: "duplicate_declared_signer" };
+  }
+  if (declaredSignerAddresses.includes(feePayer.toBase58())) {
+    return { status: "invalid", code: "invalid_declared_signer" };
   }
 
   if (request.accountsToCreate.length === 0) {
@@ -129,11 +148,36 @@ export async function assessDeploymentBudget(
       return { status: "unavailable", code: "devnet_identity_mismatch" };
     }
     const latestBlockhash = await connection.getLatestBlockhashAndContext("confirmed");
-    const messageTransaction = new Transaction({
+    if (
+      !validContextSlot(latestBlockhash.context.slot, 0) ||
+      !validContextSlot(latestBlockhash.value.lastValidBlockHeight, 0) ||
+      typeof latestBlockhash.value.blockhash !== "string"
+    ) {
+      return { status: "unavailable", code: "budget_rpc_failed" };
+    }
+    const message = compileLegacyTransactionMessage(
+      transaction.instructions,
       feePayer,
-      recentBlockhash: latestBlockhash.value.blockhash,
-    }).add(...transaction.instructions);
-    const message = messageTransaction.compileMessage();
+      latestBlockhash.value.blockhash,
+    );
+    const requiredSignerAddresses = message.accountKeys
+      .slice(0, message.header.numRequiredSignatures)
+      .map((key) => key.toBase58());
+    const requiredSignerSet = new Set(requiredSignerAddresses);
+    if (!requiredSignerSet.has(feePayer.toBase58())) {
+      return { status: "invalid", code: "fee_payer_mismatch" };
+    }
+    if (declaredSignerAddresses.some((address) => !requiredSignerSet.has(address))) {
+      return { status: "invalid", code: "declared_signer_not_required" };
+    }
+    if (
+      requiredSignerAddresses.some(
+        (address) => address !== feePayer.toBase58() && !declaredSignerAddresses.includes(address),
+      )
+    ) {
+      return { status: "invalid", code: "undeclared_signer_required" };
+    }
+    const messageDigestHex = await digestLegacyTransactionMessage(message);
 
     const [balanceResponse, feeResponse, rentResults] = await Promise.all([
       connection.getBalanceAndContext(feePayer, {
@@ -147,6 +191,9 @@ export async function assessDeploymentBudget(
             commitment: "confirmed",
             minContextSlot: latestBlockhash.context.slot,
           });
+          if (!validContextSlot(accountInfo.context.slot, latestBlockhash.context.slot)) {
+            return { status: "failed" as const };
+          }
           if (accountInfo.value !== null) return { status: "exists" as const };
           const lamports = await connection.getMinimumBalanceForRentExemption(
             dataLength,
@@ -160,8 +207,17 @@ export async function assessDeploymentBudget(
     if (rentResults.some((result) => result.status === "exists")) {
       return { status: "unavailable", code: "rent_target_already_exists" };
     }
+    if (rentResults.some((result) => result.status === "failed")) {
+      return { status: "unavailable", code: "budget_rpc_failed" };
+    }
     if (feeResponse.value === null) {
       return { status: "unavailable", code: "fee_quote_unavailable" };
+    }
+    if (
+      !validContextSlot(balanceResponse.context.slot, latestBlockhash.context.slot) ||
+      !validContextSlot(feeResponse.context.slot, latestBlockhash.context.slot)
+    ) {
+      return { status: "unavailable", code: "budget_rpc_failed" };
     }
 
     const availableLamports = asLamports(balanceResponse.value);
@@ -187,6 +243,9 @@ export async function assessDeploymentBudget(
       blockhashContextSlot: latestBlockhash.context.slot,
       balanceContextSlot: balanceResponse.context.slot,
       feeContextSlot: feeResponse.context.slot,
+      feePayer: feePayer.toBase58(),
+      requiredSignerAddresses,
+      messageDigestHex,
       availableLamports,
       networkFeeLamports,
       accountRentLamports,
