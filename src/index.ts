@@ -23,13 +23,109 @@ export type {
   WhaleEntryResult,
 } from "./domain/attack-result.js";
 export type {
+  AuditAnalysisStatus,
+  AuditCategoryResult,
   AuditEvidence,
   AuditEvidenceSource,
   AuditEvidenceValue,
   AuditFinding,
   AuditFindingCategory,
+  AuditMetricObservation,
   AuditSeverity,
+  PriceStabilityAuditResult,
 } from "./domain/audit.js";
+export type {
+  ConcentrationAuditInput,
+  ConcentrationAuditResult,
+} from "./domain/concentration-audit.js";
+export { analyzeConcentration } from "./domain/concentration-audit.js";
+export type {
+  AuditSeverityAssessment,
+  AuditSeverityMetric,
+  AuditSeverityPolicy,
+  AuditSeverityThreshold,
+} from "./domain/audit-policy.js";
+export {
+  assessAuditSeverity,
+  AUDIT_SEVERITY_METRICS,
+  DEMO_AUDIT_SEVERITY_POLICY,
+  validateAuditSeverityPolicy,
+} from "./domain/audit-policy.js";
+export type { PriceStabilityAuditInput } from "./domain/price-stability-audit.js";
+export { analyzePriceStability } from "./domain/price-stability-audit.js";
+export type {
+  EarlyAdvantageAuditInput,
+  EarlyAdvantageAuditResult,
+} from "./domain/early-advantage-audit.js";
+export { analyzeEarlyAdvantage } from "./domain/early-advantage-audit.js";
+export type {
+  OpeningSniperAuditRun,
+  SniperExposureAuditInput,
+  SniperExposureAuditResult,
+} from "./domain/sniper-exposure-audit.js";
+export { analyzeSniperExposure } from "./domain/sniper-exposure-audit.js";
+export type {
+  ExitLiquidityAuditInput,
+  ExitLiquidityAuditResult,
+} from "./domain/exit-liquidity-audit.js";
+export { analyzeExitLiquiditySensitivity } from "./domain/exit-liquidity-audit.js";
+export type {
+  LateStageCapitalStressPair,
+  MigrationFragilityAuditInput,
+  MigrationFragilityAuditResult,
+} from "./domain/migration-fragility-audit.js";
+export { analyzeMigrationFragility } from "./domain/migration-fragility-audit.js";
+export type {
+  FeeShockAuditInput,
+  FeeShockAuditResult,
+  FeeShockAuditRun,
+} from "./domain/fee-shock-audit.js";
+export { analyzeFeeShock } from "./domain/fee-shock-audit.js";
+export type {
+  SurplusBehaviorAuditInput,
+  SurplusBehaviorAuditResult,
+} from "./domain/surplus-behavior-audit.js";
+export { analyzeSurplusBehavior } from "./domain/surplus-behavior-audit.js";
+export type {
+  PostMigrationLiquidityAuditInput,
+  PostMigrationLiquidityAuditResult,
+} from "./domain/post-migration-liquidity-audit.js";
+export { analyzePostMigrationLiquidity } from "./domain/post-migration-liquidity-audit.js";
+export type {
+  AuditSolverFindingMapping,
+  AuditSolverObjectiveConversion,
+  AuditSolverRiskTerm,
+  ConvertAuditFindingsToSolverObjectiveInput,
+  UnsupportedAuditSolverFinding,
+  UnsupportedAuditSolverRiskTerm,
+} from "./domain/audit-solver-objective.js";
+export { convertAuditFindingsToSolverObjective } from "./domain/audit-solver-objective.js";
+export type {
+  GenerateHardenedCandidateInput,
+  HardenedCandidateGenerationIssue,
+  HardenedCandidateGenerationResult,
+  RejectedHardenedCandidate,
+} from "./domain/harden-market-candidate.js";
+export { generateHardenedCandidate } from "./domain/harden-market-candidate.js";
+export type {
+  AttackReplayAttempt,
+  CandidateResimulationResult,
+  HardeningAttackReplayConfiguration,
+  HardeningReplayConfiguration,
+  HardeningResimulationResult,
+  ReplayAttempt,
+  ReplayFailure,
+} from "./domain/harden-market-resimulation.js";
+export { resimulateHardenedCandidate } from "./domain/harden-market-resimulation.js";
+export type {
+  HardeningComparisonCategory,
+  HardeningComparisonDirection,
+  HardeningComparisonStatus,
+  HardeningComparisonValue,
+  HardeningMetricComparison,
+  HardenedCandidateComparison,
+} from "./domain/harden-market-comparison.js";
+export { compareHardenedCandidate } from "./domain/harden-market-comparison.js";
 export type {
   ConfigurationValidationIssue,
   ConfigurationValidationResult,
@@ -147,6 +243,7 @@ export {
   executeBuy,
   executeMigration,
   executeSell,
+  getScheduledBaseFeeNumeratorAtClock,
   getPoolEconomicSnapshot,
   getMigrationProgress,
   getSpotPrice,
@@ -183,6 +280,8 @@ export {
 export type {
   AgentArchetype,
   AgentCounts,
+  EarlyParticipantAdvantageMetrics,
+  MigrationSurplusMetrics,
   DeterministicSimulationMetrics,
   DeterministicSimulationResult,
   DistributionSummary,

@@ -1250,6 +1250,9 @@ Median time / ticks to migration:
 Median top-10 holder concentration:
 34%
 
+P95 early-buyer price advantage:
+12% (measured in 1,000 completed runs)
+
 Median maximum drawdown:
 27%
 
@@ -1267,6 +1270,8 @@ The result contract in §20.1 is authoritative. Every run records engine and SDK
 The Monte Carlo runner derives one unsigned 64-bit iteration seed per run from the explicitly supplied master seed using the versioned `splitmix64-v1` generator. It retains each iteration seed, status, completed tick count, and failure detail. Summary statistics exclude partial and failed iterations; if none complete, return a failed result without fabricated zero-valued statistics. Graduation frequency is calculated over completed iterations. Time-to-migration is conditional on completed iterations that reached the migration threshold. Quote accumulation is the signed change in the pool's quote reserve; holder concentration is computed among tracked agent balances, not inferred across unmodeled wallets. Fee summaries use their explicit base/quote components.
 
 Graduation means that the modeled DBC curve reached its configured quote threshold; it does not imply DAMM v2 settlement or SDK/on-chain migration verification. Maximum drawdown is the largest observed peak-to-later-price decline over executed trades, maximum price impact is the largest per-trade impact, and fee distributions come from explicit ledger deltas. Top-holder and top-ten concentration use the total base balances held by configured agents for that completed run; they do not claim concentration across wallets absent from the scenario.
+
+Early-participant price advantage is measured per completed iteration from event-order buy fills. It compares the exact first 10% of executed quote buy input with the nearest-rank median of per-buyer average entry prices; if the 10% boundary falls inside a trade, the simulator re-quotes that exact partial input against the pre-trade pool state. The stored p05/median/p95 values are paired records sorted by advantage, and the sample-size field counts completed iterations with enough quote and buyer data. The reported advantage is non-negative; accompanying prices preserve the actual comparison when early buyers did not pay less.
 
 Percentiles use the nearest-rank rule with no interpolation: rank = `ceil(sampleSize * percentileBps / 10_000)`. The p50 is therefore the lower middle observation for an even-sized sample. Fee-pair quantiles retain the joint observation and use base-fee atomic amount, then quote-fee atomic amount, as the deterministic lexicographic sort key. Uncertainty labels are descriptive model diagnostics, not statistical confidence intervals: fewer than 30 completed runs is `insufficient-data`; otherwise any partial/failed runs or a p95–p05 spread of at least 50% of the largest absolute tail/median magnitude yields `high`; a spread from 20% to below 50% yields `moderate`; otherwise the label is `low`. The spread calculation uses a denominator of at least one atomic unit/basis point. Reasons, sample size, completion rate, and maximum relative spread accompany the label.
 
@@ -1422,6 +1427,8 @@ top-10 concentration
 capital concentration
 ```
 
+The MVP's stochastic top-holder and top-ten metrics use the p95 share of base balances held by configured agents only. The whale-entry attack reports the attacker's p95 share of tracked agent base immediately after its configured buy. These are scenario-bounded modeled measurements; do not infer all-wallet or Sybil-resistant concentration from them. If the run has no tracked holder metric, report the category as unavailable rather than inventing zero concentration.
+
 ### Early Advantage
 
 ```text
@@ -1430,11 +1437,15 @@ vs
 median buyer average price
 ```
 
+For each completed stochastic iteration, measure buyers' average quote spent per base acquired. The early tranche is the first 10% of total executed buy quote input, in retained event order; if its boundary falls inside a buy, re-quote that exact partial input against the pre-trade pool state. The median is the nearest-rank p50 of per-buyer average entry prices (lower middle for an even buyer count). Report the first-tranche price, median buyer price, and non-negative discount in bps; if there is insufficient quote/buyer data, mark the metric unavailable.
+
 ### Sniper Exposure
 
 ```text
 modeled attacker profitability
 ```
+
+Normalize the p95 signed quote PnL from an opening-sniper run by its explicitly supplied quote capital-at-risk amount. Do not infer capital from the attacker's PnL or unrelated run fields. Preserve both the signed PnL and denominator as evidence; negative PnL maps to zero positive-return basis points for severity while the signed loss remains visible.
 
 ### Exit Liquidity Sensitivity
 
@@ -1442,17 +1453,23 @@ modeled attacker profitability
 price decline caused by modeled sell sizes
 ```
 
+The audit consumes post-exit p95 drawdown from the opening-sniper, pump-and-dump, and sell-cascade scenarios. Where an attack reports recovery quote or quote outflow, retain those asset-tagged p95 amounts as separate evidence; attack result fields are independently summarized, so the report must not imply that separate percentiles came from the same iteration.
+
 ### Migration Fragility
 
 ```text
 how dependent graduation is on late-stage capital
 ```
 
+Measure this with a paired stochastic baseline and a caller-described late-stage quote-capital stress using the same seed, versions, iteration count, and agent counts. Report DBC-threshold failure frequency as `10,000 bps - graduationFrequencyBps` for the stressed run, retain baseline/stress graduation frequency and the declared reduction, and do not claim the caller's stress description proves causal isolation. A missing stress pair is unavailable, not zero fragility.
+
 ### Fee Shock
 
 ```text
 economic discontinuities caused by fee schedule changes
 ```
+
+Compare effective scheduled base-fee numerators at adjacent eligible clocks for linear or exponential schedules. Exclude the stateful dynamic-fee component from this rate-step metric, retain exact numerator and fractional-bps changes, and round the absolute step up to whole bps only when applying severity thresholds. Keep each completed candidate's observed base and quote fee totals separately asset-tagged; do not add unlike assets or imply their percentiles are paired with the rate-step metric.
 
 ### Surplus Behavior
 
@@ -1461,6 +1478,10 @@ expected migration overshoot
 distribution of surplus
 ```
 
+Report quote-reserve overshoot relative to the configured migration threshold and retain the threshold, overshoot, and protocol/partner/creator quote allocations as separate evidence. Deterministic observations come from curve-complete runs; stochastic p05/median/p95 summaries include only completed iterations that reach the threshold and retain the overshoot and allocation values as paired samples. Record the qualifying iteration count; if none graduate, the result is unavailable rather than a fabricated zero.
+
+The current simulator caps curve fills at completion, so a zero-overshoot result may be a fill-clamp artifact and must not be treated as evidence that real transactions cannot overshoot. Recipient shares and rounding reflect simulator assumptions, not verified SDK/program parity. Keep these metrics separate from migration fees and DAMM liquidity.
+
 ### Post-Migration Liquidity
 
 ```text
@@ -1468,6 +1489,10 @@ locked %
 vested %
 immediately liquid %
 ```
+
+Use the deterministic run's six creator/partner allocation buckets and the distributable liquidity-unit total. Report raw units per bucket, aggregate unlocked/vesting/permanently locked shares in basis points, and use aggregate unlocked share as the policy metric. Percentages are floored from exact integer units; they may sum to less than 10,000 bps because of rounding. If migration allocation is absent, report unavailable rather than assuming zero.
+
+These are destination-liquidity units, not quote or base token amounts. Higher unlocked share is an exposure signal under the selected illustrative policy, not a universal judgment: it can improve flexibility and available market liquidity, while more vesting or permanent lock can constrain recipients. State any recommendation's trade-off, and do not imply lock execution or destination behavior is verified without protocol evidence.
 
 ---
 
@@ -1490,6 +1515,36 @@ HIGH
 with exact supporting metrics.
 
 An audit finding must include its category, severity, concise explanation, evidence references, typed metric values, and suggested remediations. Evidence must identify whether it came from deterministic, stochastic, adversarial, SDK-parity, or on-chain data. The canonical finding and evidence contracts are defined in §20.3. Severity is an explainable classification, not a composite score; retain the supporting measurements and their provenance.
+
+The MVP uses one centralized, editable `AuditSeverityPolicy`. Every observation is retained in its raw unit before severity is derived. Findings and the enclosing audit result persist the policy id/version; the audit result also snapshots its thresholds so a report remains reproducible if a later policy is recalibrated. Rules must not embed numeric cutoffs. Hardening objectives use underlying numeric measurements, never severity labels.
+
+The initial policy is `demo` / `demo-v1`, classified and labeled as an illustrative demo heuristic. Its thresholds are provisional examples only, not protocol guarantees, safety claims, or industry standards. Thresholds are in basis points and a value at or above the high threshold is `HIGH`; otherwise a value at or above the moderate threshold is `MODERATE`; lower values are `LOW`.
+
+Finding-to-solver hardening maps only metrics with a semantically compatible candidate measurement. The current supported mappings are the deterministic early-curve price-impact rule to `earlyPriceImpact` only when the finding retains the first trade as a quote buy and the candidate probe exactly matches its input; it uses the original numeric intent limit (or zero as the solver's explicit minimization target). Opening-sniper p95 return maps to `attackProfitability` only when retained quote PnL/capital evidence reproduces the raw metric. The candidate evaluator must use a comparable configured scenario. Other findings remain visibly unsupported until a matching solver measurement exists. Never map severity labels or policy cutoffs into solver targets. Added risk weights are explicit, reserve a fraction below one, and proportionally scale the original objective weights so their relative economic priorities remain; original intent constraints are not rewritten.
+
+Generate a hardened candidate by re-solving the unchanged normalized `MarketIntent` with the same simulator configuration and converted objective weights. Preserve the original candidate and selected finding records. Select only candidates that satisfy the original quote and distribution targets, meet the numeric maximum early-price-impact target at the same explicit quote probe when one is specified, and whose start/migration Q64.64 boundaries, supply, and deterministic simulation match the original intent/configuration. Reject candidates with a missing comparable early-impact measurement or an exceeded limit, and retain rejection reasons. The resulting curve remains `unverified` and is not deployable.
+
+Re-run both the original and hardened candidate with identical deterministic trade actions, stochastic agent/tick configuration and master seed, and selected attack configurations and seeds. Apply the same optional warm-up quote to both candidates. Retain complete run outputs and seeds; represent setup/run exceptions explicitly and mark partial or failed suites rather than treating them as zero-risk results.
+
+Produce a structured before/after comparison from the original and hardened candidates plus those paired replay outputs. The comparison artifact retains the full generation and resimulation records, including the original candidate, selected findings with evidence, and replay seeds/results. Report selected raw risk metrics and available deterministic, stochastic-p95, and attack metrics with their source references; do not collapse findings into a score or use severity labels as objective measurements. Include absolute quote-target error in quote atomic units, absolute base-distribution-target error in basis points, measured migration price and its relative target error, whether the curve-completion simulation reached migration, segment count, and base/quote fees as separate asset-tagged amounts. Preserve unavailable and partial measurements with their reasons; a failed run is never represented as zero risk. Label the comparison as modeled and retain `verificationStatus: "unverified"` until SDK/program or on-chain evidence justifies a stronger status.
+
+The seeded hardening regression uses a deliberately selected higher-exposure feasible candidate, a 15% maximum-impact limit measured with an explicit $5,000 quote probe, $5,000 retail buys, a $100 opening-sniper buy, $500 quote capital at risk, two attack iterations, and attack master seed `9921`. Under this fixture, p95 attacker PnL falls from `12,562,158` to `9,961,208` quote atomic units; the raw positive-return metric falls from 251 to 199 bps. The replay uses the same attack configuration and derived iteration seeds for both candidates, preserves the original quote/distribution and numeric price-impact constraints, and remains modeled/unverified. This is a reproducible scenario result, not a general promise about other demand or attacker profiles.
+
+| Metric | MODERATE at or above | HIGH at or above |
+| --- | ---: | ---: |
+| Early, mid-curve, late, and maximum trade price impact | 500 bps | 1,500 bps |
+| Maximum drawdown | 1,500 bps | 3,000 bps |
+| Top-holder concentration | 1,000 bps | 2,500 bps |
+| Top-ten-holder concentration | 5,000 bps | 7,500 bps |
+| Early-buyer price advantage | 1,000 bps | 2,500 bps |
+| Sniper return | 500 bps | 1,500 bps |
+| Exit recovery quote | 500 bps | 1,500 bps |
+| Migration failure frequency | 1,000 bps | 3,000 bps |
+| Fee-shock rate step | 100 bps | 500 bps |
+| Migration surplus | 100 bps | 500 bps |
+| Unlocked post-migration liquidity | 5,000 bps | 8,000 bps |
+
+For price stability, deterministic trade impact is grouped by the midpoint of its before/after migration progress: early `[0, 3,334)`, middle `[3,334, 6,667)`, and late `[6,667, 10,001)` bps. Each reported stage value is the maximum single-trade impact observed in the supplied run, so it depends on the run's configured trade sizes and is not an intrinsic curve-depth guarantee. Stochastic summaries use the retained run's p95 of per-iteration maxima. Partial runs retain observed metrics and remain marked partial; absent observations are unavailable, never fabricated zeroes.
 
 Example:
 
@@ -2129,6 +2184,22 @@ type DeterministicSimulationResult = SimulationRunMetadata & {
 
 type AgentCounts = Record<AgentArchetype, bigint>;
 
+type EarlyParticipantAdvantageMetrics = {
+  priceAdvantageBps: bigint;
+  firstTenPercentQuoteAveragePrice: Decimal;
+  medianBuyerAveragePrice: Decimal;
+  quoteVolume: AssetAmount<"quote">;
+};
+
+type MigrationSurplusMetrics = {
+  overshootBps: bigint;
+  threshold: AssetAmount<"quote">;
+  overshoot: AssetAmount<"quote">;
+  protocol: AssetAmount<"quote">;
+  partner: AssetAmount<"quote">;
+  creator: AssetAmount<"quote">;
+};
+
 type StochasticSimulationSummary = {
   graduationFrequencyBps: bigint;
   quoteAccumulated: DistributionSummary<AssetAmount<"quote">>;
@@ -2138,6 +2209,10 @@ type StochasticSimulationSummary = {
   maximumPriceImpactBps: DistributionSummary<bigint>;
   topHolderConcentrationBps?: DistributionSummary<bigint>;
   topTenHolderConcentrationBps?: DistributionSummary<bigint>;
+  earlyParticipantAdvantage?: DistributionSummary<EarlyParticipantAdvantageMetrics>;
+  earlyParticipantAdvantageSampleSize?: bigint;
+  migrationSurplus?: DistributionSummary<MigrationSurplusMetrics>;
+  migrationSurplusSampleSize?: bigint;
   feesGenerated: DistributionSummary<AssetAmountPair>;
   creatorFees?: DistributionSummary<AssetAmountPair>;
   sniperExtractionQuote?: DistributionSummary<AssetAmount<"quote">>;
@@ -2373,14 +2448,87 @@ type AuditFinding = {
   ruleId: string;
   category: AuditFindingCategory;
   severity: AuditSeverity;
+  severityMetric: AuditSeverityMetric;
+  severityValueBps: bigint;
+  severityThresholds: AuditSeverityThreshold;
+  severityPolicyId: string;
+  severityPolicyVersion: string;
+  severityPolicyClassification: "illustrative-demo-heuristic";
   title: string;
   summary: string;
   evidence: readonly [AuditEvidence, ...AuditEvidence[]];
   suggestedRemediations: readonly string[];
 };
+
+type AuditSeverityThreshold = {
+  moderateAtOrAboveBps: bigint;
+  highAtOrAboveBps: bigint;
+};
+
+type AuditSeverityPolicy = {
+  id: string;
+  version: string;
+  classification: "illustrative-demo-heuristic";
+  label: string;
+  thresholds: Readonly<Record<AuditSeverityMetric, AuditSeverityThreshold>>;
+};
+
+type AuditSeverityMetric =
+  | "early-price-impact-bps"
+  | "mid-price-impact-bps"
+  | "late-price-impact-bps"
+  | "maximum-price-impact-bps"
+  | "maximum-drawdown-bps"
+  | "top-holder-concentration-bps"
+  | "top-ten-holder-concentration-bps"
+  | "early-buyer-price-advantage-bps"
+  | "sniper-return-bps"
+  | "exit-recovery-quote-bps"
+  | "migration-failure-frequency-bps"
+  | "fee-shock-bps"
+  | "migration-surplus-bps"
+  | "unlocked-post-migration-liquidity-bps";
+
+type AuditMetricObservation = {
+  category: AuditFindingCategory;
+  ruleId: string;
+  source: AuditEvidenceSource;
+  reference: string;
+  metric: AuditSeverityMetric;
+  valueBps: bigint;
+  metricDescription: string;
+  supportingEvidence?: readonly AuditEvidence[];
+};
+
+type OpeningSniperAuditRun = {
+  result: OpeningSniperResult;
+  capitalAtRiskQuote: AssetAmount<"quote">;
+};
+
+type LateStageCapitalStressPair = {
+  baselineRun: StochasticSimulationResult;
+  lateStageStressRun: StochasticSimulationResult;
+  lateStageQuoteCapitalReductionBps: bigint;
+};
+
+type FeeShockAuditRun = {
+  result: FeeScheduleTimingResult;
+  initialState: PoolState;
+};
+
+type PriceStabilityAuditResult = {
+  auditId: string;
+  candidateId: string;
+  category: "price-stability";
+  status: "completed" | "partial" | "unavailable";
+  evidenceClassification: "modeled";
+  severityPolicy: AuditSeverityPolicy;
+  observations: readonly AuditMetricObservation[];
+  findings: readonly AuditFinding[];
+};
 ```
 
-Each evidence reference must resolve to a retained run, parity case, or on-chain observation and identify the exact metric/unit. A finding must not claim stronger evidence than its source supports. Remediations are suggestions tied to controllable inputs and must state material trade-offs; findings are not guarantees or a single-number safety score.
+Each evidence reference must resolve to a retained run, parity case, or on-chain observation and identify the exact metric/unit. A finding must not claim stronger evidence than its source supports. Remediations are suggestions tied to controllable inputs and must state material trade-offs; finding creation rejects a recommendation without an explicit trade-off. Findings are not guarantees or a single-number safety score. Audit outputs retain raw per-metric observations and classifications; they do not produce aggregate safety or risk scores.
 
 ## 20.4 Deployment record contracts
 

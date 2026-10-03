@@ -3,7 +3,7 @@
 ## Read first
 
 DO not use comments in codes unless very neccessary.
-This repository is currently specification-first. Before proposing, implementing, reviewing, or testing any product change:
+This is a spec-led TypeScript implementation with domain math, simulation, attack, audit, and hardening workflows in progress. Before proposing, implementing, reviewing, or testing any product change:
 
 1. Read the root [`spec.md`](./spec.md) in full.
 2. Read the root [`PRD.md`](./PRD.md) in full.
@@ -116,4 +116,4 @@ Before handing off:
 
 ## Current repository status
 
-The workspace has a root TypeScript package, pinned pnpm lockfile, strict compiler configuration, Biome, Vitest, CI workflow, decision/protocol notes, and Git history. Phase 2 DBC math and SDK parity checks are implemented; Phase 3 includes an in-memory deterministic simulator, illustrative demo fixture, and `validate`, `simulate`, and `inspect` CLI commands with human and JSON output. The demo migration settlement remains illustrative and unverified. The inverse solver, stochastic/adversarial engine, audit implementation, UI, and deployment flow remain future work. Future agents must inspect the current state rather than assuming the suggested product architecture already exists.
+The workspace has a root TypeScript package, pinned pnpm lockfile, strict compiler configuration, Biome, Vitest, CI workflow, decision/protocol notes, and Git history. Phases 1–6 of `todo.md` are implemented: exact DBC math and SDK curve validation, deterministic simulation/CLI, inverse-solver curve drafts, seeded stochastic and five adversarial scenarios, metric-based economic audits, and hardening with paired replay comparisons. Audit severity uses the editable illustrative `demo-v1` policy; hardening comparisons remain modeled and candidates remain `unverified`. The demo migration settlement is illustrative and unverified. The web workflow/report export, end-to-end devnet deployment verification, and AI interpretation remain future work. Future agents must inspect the current state rather than assuming the suggested product architecture already exists.

@@ -238,32 +238,34 @@ Goal: turn simulation output into actionable findings and measurable improvement
 
 ### Audit engine
 
-- [ ] Implement price-stability analysis.
-- [ ] Implement concentration analysis.
-- [ ] Implement early-participant advantage analysis.
-- [ ] Implement sniper-exposure analysis.
-- [ ] Implement exit-liquidity sensitivity analysis.
-- [ ] Implement migration-fragility analysis.
-- [ ] Implement fee-shock analysis.
-- [ ] Implement surplus-behavior analysis.
-- [ ] Implement post-migration liquidity analysis.
-- [ ] Assign `LOW`, `MODERATE`, or `HIGH` severity with exact supporting metrics.
-- [ ] Generate suggested mitigations tied to controllable curve, fee, or allocation inputs.
+- [x] Define the editable, versioned `demo-v1` severity policy with centralized per-metric heuristic thresholds, retain raw metrics and policy versions, and document that thresholds are provisional rather than protocol guarantees (`src/domain/audit-policy.ts`, `spec.md` §11.2/§20.3; 4 focused tests pass).
+- [x] Implement price-stability analysis, including stage-specific deterministic price impact, maximum drawdown, stochastic p95 metrics, exact run evidence, policy-derived severity, and trade-off-bearing recommendations (`src/domain/price-stability-audit.ts`; 4 focused tests; full `pnpm check` passes with 222 tests; `pnpm build` succeeds).
+- [x] Implement concentration analysis from tracked-agent top-holder/top-ten p95 metrics and adversarial whale-entry concentration; retain evidence scope and avoid claims about unmodeled wallets (`src/domain/concentration-audit.ts`; 3 focused tests; full `pnpm check` passes with 225 tests; `pnpm build` succeeds).
+- [x] Implement early-participant advantage analysis with exact first-10%-quote re-quoting, nearest-rank median buyer price, paired seeded-run distributions, raw price/volume evidence, and policy-derived severity (`src/domain/monte-carlo.ts`, `src/domain/early-advantage-audit.ts`; focused tests plus full `pnpm check` pass with 227 tests; `pnpm build` succeeds).
+- [x] Implement sniper-exposure analysis using opening-attack p95 PnL and an explicit per-run capital-at-risk basis; retain signed PnL, capital evidence, and trade-offs (`src/domain/sniper-exposure-audit.ts`; 3 focused tests; full `pnpm check` passes with 230 tests; `pnpm build` succeeds).
+- [x] Implement exit-liquidity sensitivity analysis for sniper, pump-and-dump, and sell-cascade exits using p95 drawdown plus explicitly separate recovery/outflow evidence (`src/domain/exit-liquidity-audit.ts`; 2 focused tests; full `pnpm check` passes with 232 tests; `pnpm build` succeeds).
+- [x] Implement migration-fragility analysis with paired-seed baseline and caller-described late-stage quote-capital stress, graduation-failure frequency, and non-causal modeled-evidence labeling (`src/domain/migration-fragility-audit.ts`; 3 focused tests; full `pnpm check` passes with 235 tests; `pnpm build` succeeds).
+- [x] Implement fee-shock analysis from exact simulator scheduled base-fee numerators at adjacent linear/exponential timing candidates; retain fractional-bps, numerator, and separate asset-fee evidence (`src/domain/fee-shock-audit.ts`; 3 focused tests; full `pnpm check` passes with 238 tests; `pnpm build` succeeds).
+- [x] Implement surplus-behavior analysis with deterministic evidence, paired p95 recipient allocations for graduated stochastic iterations, explicit fill-clamp/parity caveats, versioned severity, and trade-off recommendations (`src/domain/surplus-behavior-audit.ts`, `src/domain/monte-carlo.ts`; 3 focused tests; full `pnpm check` passes with 241 tests across 51 files; `pnpm build` succeeds).
+- [x] Implement post-migration liquidity analysis with six-bucket conservation, aggregate unlocked/vesting/locked shares, exact run evidence, versioned severity, and allocation trade-offs (`src/domain/post-migration-liquidity-audit.ts`; 4 focused tests; full `pnpm check` passes with 245 tests across 52 files; `pnpm build` succeeds).
+- [x] Assign `LOW`, `MODERATE`, or `HIGH` severity with exact supporting metrics through the centralized, versioned policy for all implemented audit categories.
+- [x] Generate suggested mitigations tied to controllable curve, fee, migration, or allocation inputs, with an explicit trade-off per recommendation.
 
 ### Harden and compare
 
-- [ ] Convert selected findings into solver penalties or constraints.
-- [ ] Generate a hardened candidate from the original intent.
-- [ ] Re-run deterministic, stochastic, and attack simulations.
-- [ ] Produce a before/after diff for risk, quote error, distribution, migration, complexity, and fees.
-- [ ] Preserve the original candidate and audit evidence.
-- [ ] Ensure improvements do not silently violate the original economic intent.
+- [x] Convert selected raw early-impact and opening-sniper findings into their semantically matching solver penalties; preserve original weight ratios, require explicit added risk weights, and report unsupported findings rather than substituting severity (`src/domain/audit-solver-objective.ts`; 3 focused tests plus solver intent-limit coverage; full `pnpm check` passes with 249 tests across 53 files; `pnpm build` succeeds).
+- [x] Generate a hardened candidate from the unchanged normalized intent and simulator configuration; retain the original candidate/findings, filter and explain candidates that miss original targets, and keep the hardened curve unverified (`src/domain/harden-market-candidate.ts`; 2 focused tests; full `pnpm check` passes with 251 tests across 54 files; `pnpm build` succeeds).
+- [x] Re-run deterministic, stochastic, and attack simulations with paired baseline/hardened inputs, identical seeded stochastic and attack configurations, and explicit failure retention (`src/domain/harden-market-resimulation.ts`; `pnpm check` passes with 251 tests across 54 files; `pnpm build` succeeds).
+- [x] Produce a before/after diff for raw replay risk, quote/distribution target error, migration, segment complexity, and asset-separated fees; preserve unavailable/partial states (`src/domain/harden-market-comparison.ts`; full `pnpm check` passes with 251 tests across 54 files; `pnpm build` succeeds).
+- [x] Preserve the original candidate, selected finding evidence, and complete paired replay outputs/seeds inside the comparison artifact (`src/domain/harden-market-comparison.ts`; regression assertions in `src/domain/harden-market-candidate.test.ts`; full `pnpm check` passes with 251 tests across 54 files; `pnpm build` succeeds).
+- [x] Reject hardened candidates that change original quote/distribution targets, start/migration boundaries, supply, simulator settings, or the numeric early-impact limit at the retained probe; preserve explicit rejection reasons (`src/domain/harden-market-candidate.ts`; zero-limit regression case; full `pnpm check` passes with 251 tests across 54 files; `pnpm build` succeeds).
 
 ### Phase gate
 
-- [ ] A seeded demo shows a measurable reduction in at least one selected risk.
-- [ ] The audit does not use unsupported single-number “safety scores.”
-- [ ] Every recommendation identifies the economic trade-off it introduces.
+- [x] A seeded demo shows a measurable reduction in at least one selected risk (`src/domain/harden-market-candidate.test.ts`; attack seed `9921`; raw opening-sniper p95 return falls 251 → 199 bps, with p95 quote PnL falling 12,562,158 → 9,961,208 atomic units; paired seeds and original constraints are asserted).
+- [x] The audit does not use unsupported single-number “safety scores” (`AuditFinding`/`AuditCategoryResult` expose raw observations and per-finding severity only; `price-stability-audit.test.ts` asserts no aggregate score fields).
+- [x] Every recommendation identifies the economic trade-off it introduces (`src/domain/audit-finding.ts` rejects recommendations without an explicit trade-off; all 35 focused audit/policy/objective tests pass).
+- [x] Phase 6 verification passes: `pnpm check` (252 tests across 55 files) and `pnpm build`.
 
 ## Phase 7 — Build the MVP web experience
 

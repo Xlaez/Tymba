@@ -279,6 +279,13 @@ export function getSpotPrice(input: PoolState): Decimal {
   );
 }
 
+export function getScheduledBaseFeeNumeratorAtClock(
+  input: PoolState,
+  clock: SimulationClock,
+): bigint {
+  return resolveBaseFeeNumerator(stateAtClock(requireValidState(input), clock));
+}
+
 export function getMigrationProgress(input: PoolState): Decimal {
   const state = requireValidState(input);
   if (state.migrationProgress !== "bonding") return new Decimal(1);
@@ -718,6 +725,25 @@ function validateSettlementAmount(amount: CurrencyAmount, decimals: number, labe
 }
 
 function resolveTradeFeeNumerator(state: PoolState): bigint {
+  const baseFeeNumerator = resolveBaseFeeNumerator(state);
+  const dynamicConfig = state.fees.dynamic;
+  if (!dynamicConfig) return baseFeeNumerator;
+  const dynamicState = state.dynamicFeeState ?? {
+    lastUpdateTimestamp: state.clock.timestampSeconds,
+    sqrtPriceReferenceQ64x64: state.currentSqrtPriceQ64x64,
+    volatilityAccumulator: 0n,
+    volatilityReference: 0n,
+  };
+  const volatilityTimesBinStep = dynamicState.volatilityAccumulator * dynamicConfig.binStepBps;
+  const variableFeeNumerator =
+    (volatilityTimesBinStep ** 2n * dynamicConfig.variableFeeControl +
+      DYNAMIC_FEE_ROUNDING_OFFSET) /
+    DYNAMIC_FEE_DENOMINATOR;
+  const total = baseFeeNumerator + variableFeeNumerator;
+  return total > MAX_DYNAMIC_FEE_NUMERATOR ? MAX_DYNAMIC_FEE_NUMERATOR : total;
+}
+
+function resolveBaseFeeNumerator(state: PoolState): bigint {
   if (state.fees.base.kind !== "fixed" && state.activationType !== state.fees.base.clock) {
     throw new RangeError("Fee schedule clock must match the pool activation clock");
   }
@@ -759,21 +785,7 @@ function resolveTradeFeeNumerator(state: PoolState): bigint {
     }
   }
 
-  const dynamicConfig = state.fees.dynamic;
-  if (!dynamicConfig) return baseFeeNumerator;
-  const dynamicState = state.dynamicFeeState ?? {
-    lastUpdateTimestamp: state.clock.timestampSeconds,
-    sqrtPriceReferenceQ64x64: state.currentSqrtPriceQ64x64,
-    volatilityAccumulator: 0n,
-    volatilityReference: 0n,
-  };
-  const volatilityTimesBinStep = dynamicState.volatilityAccumulator * dynamicConfig.binStepBps;
-  const variableFeeNumerator =
-    (volatilityTimesBinStep ** 2n * dynamicConfig.variableFeeControl +
-      DYNAMIC_FEE_ROUNDING_OFFSET) /
-    DYNAMIC_FEE_DENOMINATOR;
-  const total = baseFeeNumerator + variableFeeNumerator;
-  return total > MAX_DYNAMIC_FEE_NUMERATOR ? MAX_DYNAMIC_FEE_NUMERATOR : total;
+  return baseFeeNumerator;
 }
 
 function updateDynamicFeeState(

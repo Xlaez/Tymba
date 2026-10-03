@@ -1,4 +1,6 @@
 import type { Decimal } from "decimal.js";
+import type { AuditSeverityPolicy } from "./audit-policy.js";
+import type { AuditSeverityMetric, AuditSeverityThreshold } from "./audit-policy.js";
 import type { AssetAmount } from "./pool-state.js";
 
 export type AuditSeverity = "LOW" | "MODERATE" | "HIGH";
@@ -40,8 +42,40 @@ export type AuditFinding = Readonly<{
   ruleId: string;
   category: AuditFindingCategory;
   severity: AuditSeverity;
+  severityMetric: AuditSeverityMetric;
+  severityValueBps: bigint;
+  severityThresholds: AuditSeverityThreshold;
+  severityPolicyId: string;
+  severityPolicyVersion: string;
+  severityPolicyClassification: AuditSeverityPolicy["classification"];
   title: string;
   summary: string;
   evidence: readonly [AuditEvidence, ...AuditEvidence[]];
   suggestedRemediations: readonly string[];
 }>;
+
+export type AuditMetricObservation = Readonly<{
+  category: AuditFindingCategory;
+  ruleId: string;
+  source: AuditEvidenceSource;
+  reference: string;
+  metric: AuditSeverityMetric;
+  valueBps: bigint;
+  metricDescription: string;
+  supportingEvidence?: readonly AuditEvidence[];
+}>;
+
+export type AuditAnalysisStatus = "completed" | "partial" | "unavailable";
+
+export type AuditCategoryResult<Category extends AuditFindingCategory> = Readonly<{
+  auditId: string;
+  candidateId: string;
+  category: Category;
+  status: AuditAnalysisStatus;
+  evidenceClassification: "modeled";
+  severityPolicy: AuditSeverityPolicy;
+  observations: readonly AuditMetricObservation[];
+  findings: readonly AuditFinding[];
+}>;
+
+export type PriceStabilityAuditResult = AuditCategoryResult<"price-stability">;

@@ -53,6 +53,22 @@ export type SimulationFailure = Readonly<{
   message: string;
 }>;
 
+export type EarlyParticipantAdvantageMetrics = Readonly<{
+  priceAdvantageBps: bigint;
+  firstTenPercentQuoteAveragePrice: Decimal;
+  medianBuyerAveragePrice: Decimal;
+  quoteVolume: AssetAmount<"quote">;
+}>;
+
+export type MigrationSurplusMetrics = Readonly<{
+  overshootBps: bigint;
+  threshold: AssetAmount<"quote">;
+  overshoot: AssetAmount<"quote">;
+  protocol: AssetAmount<"quote">;
+  partner: AssetAmount<"quote">;
+  creator: AssetAmount<"quote">;
+}>;
+
 export type DeterministicSimulationMetrics = Readonly<{
   migrated: boolean;
   finalSpotPrice: Decimal;
@@ -99,6 +115,10 @@ export type StochasticSimulationSummary = Readonly<{
   maximumPriceImpactBps: DistributionSummary<bigint>;
   topHolderConcentrationBps?: DistributionSummary<bigint>;
   topTenHolderConcentrationBps?: DistributionSummary<bigint>;
+  earlyParticipantAdvantage?: DistributionSummary<EarlyParticipantAdvantageMetrics>;
+  earlyParticipantAdvantageSampleSize?: bigint;
+  migrationSurplus?: DistributionSummary<MigrationSurplusMetrics>;
+  migrationSurplusSampleSize?: bigint;
   feesGenerated: DistributionSummary<AssetAmountPair>;
   creatorFees?: DistributionSummary<AssetAmountPair>;
   sniperExtractionQuote?: DistributionSummary<AssetAmount<"quote">>;

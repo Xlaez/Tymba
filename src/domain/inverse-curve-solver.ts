@@ -602,6 +602,9 @@ function evaluateAllocation(
         }),
     migrationPriceTarget: market.migrationPrice,
     migrationPriceAchieved: migrationPrice,
+    ...(market.maxEarlyPriceImpactBps === undefined
+      ? {}
+      : { maxEarlyPriceImpactBps: market.maxEarlyPriceImpactBps }),
     ...(earlyImpact === undefined ||
     options.earlyPriceImpactProbeQuoteAtomic === undefined ||
     earlyImpact.evidenceId === undefined

@@ -208,6 +208,26 @@ describe("solveMarketCurve", () => {
     }
   });
 
+  it("uses the original intent's numeric early-impact limit in the solver penalty", () => {
+    const market = normalizedMarket({
+      ...demoIntent,
+      preferences: { maxEarlyPriceImpactPct: "3" },
+    });
+    const result = solveMarketCurve(market, {
+      objectiveWeights,
+      simulation: simulationConfiguration,
+      earlyPriceImpactProbeQuoteAtomic: 5_000_000_000n,
+      earlyPriceImpactEvaluator: ({ candidateId }) => ({
+        priceImpactBps: 600n,
+        evidenceId: `intent-limit-${candidateId}`,
+      }),
+    });
+    const candidate = result.candidates[0];
+
+    expect(candidate?.objective.measurements.maxEarlyPriceImpactBps).toBe(300n);
+    expect(candidate?.objective.terms.earlyPriceImpact.normalizedPenalty?.toFixed()).toBe("0.03");
+  });
+
   it("derives start and migration prices from FDV and supports a quote-only target", () => {
     const market = normalizedMarket({
       assets: demoIntent.assets,

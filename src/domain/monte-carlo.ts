@@ -4,17 +4,22 @@ import type { AssetAmount, AssetAmountPair } from "./pool-state.js";
 import type {
   DistributionSummary,
   FailedStochasticSimulationResult,
+  MigrationSurplusMetrics,
   SimulationFailure,
   SimulationUncertainty,
   SimulationUncertaintyReason,
   StochasticIterationOutcome,
   StochasticSimulationResult,
 } from "./simulation.js";
+import { calculateMigrationQuoteAccounting } from "./migration-math.js";
 import { createSeededRandom, createSeededRunMetadata } from "./seeded-random.js";
 import {
   DBC_SIMULATION_ENGINE_VERSION,
+  executeBuy,
+  executeSell,
   getSpotPrice,
   PINNED_SIMULATION_SDK_VERSION,
+  quoteBuy,
 } from "./simulator.js";
 import { createStochasticSimulationInput } from "./simulation-scenario.js";
 import type { StochasticScenarioConfiguration } from "./simulation-scenario.js";
@@ -37,6 +42,11 @@ type IterationMeasurements = Readonly<{
   creatorFees: AssetAmountPair;
   topHolderConcentrationBps: bigint;
   topTenHolderConcentrationBps: bigint;
+  earlyBuyerPriceAdvantageBps?: bigint;
+  firstTenPercentQuoteAveragePrice?: Decimal;
+  medianBuyerAveragePrice?: Decimal;
+  earlyParticipantQuoteVolumeRaw?: bigint;
+  migrationSurplus?: MigrationSurplusMetrics;
   sniperExtractionQuoteRaw?: bigint;
 }>;
 
@@ -165,7 +175,6 @@ function measureIteration(
 ): IterationMeasurements {
   const initial = trace.initialState;
   const final = trace.finalState;
-  const graduated = final.migrationProgress !== "bonding";
   const migrationSeconds = final.clock.timestampSeconds - initial.clock.timestampSeconds;
   let peakPrice = getSpotPrice(initial);
   let maximumDrawdownBps = 0n;
@@ -222,6 +231,15 @@ function measureIteration(
       initialAgent.initialBaseCostBasisQuoteAtomic;
     return total + pnl;
   }, 0n);
+  const earlyAdvantage = measureEarlyBuyerAdvantage(trace);
+  const migrationAccounting = calculateMigrationQuoteAccounting(
+    final.ledger.pool.quote.raw,
+    final.curve.migrationQuoteThresholdAtomic,
+  );
+  const migrationSurplus = migrationAccounting.curveComplete
+    ? measureMigrationSurplus(migrationAccounting, final)
+    : undefined;
+  const graduated = migrationAccounting.curveComplete;
 
   return {
     graduated,
@@ -253,10 +271,140 @@ function measureIteration(
     },
     topHolderConcentrationBps,
     topTenHolderConcentrationBps,
+    ...(earlyAdvantage === undefined
+      ? {}
+      : {
+          earlyBuyerPriceAdvantageBps: earlyAdvantage.advantageBps,
+          firstTenPercentQuoteAveragePrice: earlyAdvantage.earlyAveragePrice,
+          medianBuyerAveragePrice: earlyAdvantage.medianBuyerAveragePrice,
+          earlyParticipantQuoteVolumeRaw: earlyAdvantage.quoteVolumeRaw,
+        }),
+    ...(migrationSurplus === undefined ? {} : { migrationSurplus }),
     ...(trace.portfolios.some(({ archetype }) => archetype === "sniper")
       ? { sniperExtractionQuoteRaw }
       : {}),
   };
+}
+
+function measureMigrationSurplus(
+  accounting: ReturnType<typeof calculateMigrationQuoteAccounting>,
+  state: ReturnType<typeof runStochasticSimulationTrace>["finalState"],
+): MigrationSurplusMetrics {
+  const creator =
+    (accounting.surplus.partnerCreatorAtomic * state.fees.creatorTradingFeeShareBps) / 10_000n;
+  const partner = accounting.surplus.partnerCreatorAtomic - creator;
+  const amount = (raw: bigint) => ({
+    asset: "quote" as const,
+    amount: currencyAmount(raw, state.curve.quoteDecimals),
+  });
+  return {
+    overshootBps:
+      (accounting.overshootAtomic * PERCENTILE_DENOMINATOR) / accounting.thresholdAtomic,
+    threshold: amount(accounting.thresholdAtomic),
+    overshoot: amount(accounting.overshootAtomic),
+    protocol: amount(accounting.surplus.protocolAtomic),
+    partner: amount(partner),
+    creator: amount(creator),
+  };
+}
+
+type EarlyParticipantAdvantageMeasurement = Readonly<{
+  advantageBps: bigint;
+  earlyAveragePrice: Decimal;
+  medianBuyerAveragePrice: Decimal;
+  quoteVolumeRaw: bigint;
+}>;
+
+function measureEarlyBuyerAdvantage(
+  trace: ReturnType<typeof runStochasticSimulationTrace>,
+): EarlyParticipantAdvantageMeasurement | undefined {
+  const buyerTotals = new Map<string, { quoteRaw: bigint; baseRaw: bigint }>();
+  let totalQuoteSpentRaw = 0n;
+  for (const event of trace.events) {
+    if (event.kind !== "trade-executed" || event.result.direction !== "buy") continue;
+    const quoteRaw = event.result.consumedInput.amount.raw;
+    const baseRaw = event.result.output.amount.raw;
+    if (quoteRaw <= 0n || baseRaw <= 0n) continue;
+    totalQuoteSpentRaw += quoteRaw;
+    const previous = buyerTotals.get(event.agentId) ?? { quoteRaw: 0n, baseRaw: 0n };
+    buyerTotals.set(event.agentId, {
+      quoteRaw: previous.quoteRaw + quoteRaw,
+      baseRaw: previous.baseRaw + baseRaw,
+    });
+  }
+
+  const targetQuoteRaw = totalQuoteSpentRaw / 10n;
+  if (targetQuoteRaw <= 0n || buyerTotals.size === 0) return undefined;
+  let quoteRemainingRaw = targetQuoteRaw;
+  let earlyQuoteRaw = 0n;
+  let earlyBaseRaw = 0n;
+  let state = trace.initialState;
+  for (const event of trace.events) {
+    if (event.kind === "tick-observed") {
+      state = { ...state, clock: event.clock };
+      continue;
+    }
+    if (event.kind !== "trade-executed") continue;
+
+    if (event.result.direction === "buy" && quoteRemainingRaw > 0n) {
+      const portionInputRaw =
+        quoteRemainingRaw < event.result.consumedInput.amount.raw
+          ? quoteRemainingRaw
+          : event.result.consumedInput.amount.raw;
+      if (portionInputRaw > 0n) {
+        const portion = quoteBuy(portionInputRaw, state);
+        earlyQuoteRaw += portion.consumedInput.amount.raw;
+        earlyBaseRaw += portion.output.amount.raw;
+        quoteRemainingRaw -= portion.consumedInput.amount.raw;
+      }
+    }
+
+    state =
+      event.result.direction === "buy"
+        ? executeBuy(event.result.requestedInput.amount.raw, state)
+        : executeSell(event.result.requestedInput.amount.raw, state);
+  }
+
+  if (quoteRemainingRaw !== 0n || earlyQuoteRaw === 0n || earlyBaseRaw === 0n) {
+    return undefined;
+  }
+
+  const prices = [...buyerTotals.values()]
+    .map(({ quoteRaw, baseRaw }) => humanAveragePrice(quoteRaw, baseRaw, trace.initialState))
+    .sort((left, right) => left.comparedTo(right));
+  const medianIndex = Number((BigInt(prices.length) + 1n) / 2n) - 1;
+  const medianBuyerAveragePrice = prices[medianIndex];
+  if (medianBuyerAveragePrice === undefined || !medianBuyerAveragePrice.greaterThan(0)) {
+    return undefined;
+  }
+  const earlyAveragePrice = humanAveragePrice(earlyQuoteRaw, earlyBaseRaw, trace.initialState);
+  const rawAdvantageBps = new ExactDecimal(
+    medianBuyerAveragePrice.minus(earlyAveragePrice).toString(),
+  )
+    .mul(PERCENTILE_DENOMINATOR.toString())
+    .div(medianBuyerAveragePrice.toString())
+    .floor();
+
+  return {
+    advantageBps: rawAdvantageBps.greaterThan(0) ? BigInt(rawAdvantageBps.toFixed(0)) : 0n,
+    earlyAveragePrice,
+    medianBuyerAveragePrice,
+    quoteVolumeRaw: earlyQuoteRaw,
+  };
+}
+
+function humanAveragePrice(
+  quoteAmountRaw: bigint,
+  baseAmountRaw: bigint,
+  state: ReturnType<typeof runStochasticSimulationTrace>["initialState"],
+): Decimal {
+  return new ExactDecimal(quoteAmountRaw.toString())
+    .mul(new ExactDecimal(10).pow(state.curve.baseDecimals))
+    .div(
+      new ExactDecimal(baseAmountRaw.toString()).mul(
+        new ExactDecimal(10).pow(state.curve.quoteDecimals),
+      ),
+    );
 }
 
 function summarizeMeasurements(
@@ -275,6 +423,12 @@ function summarizeMeasurements(
   const baseValues = measurements.map((measurement) => measurement.baseDistributedRaw);
   const fees = measurements.map((measurement) => measurement.feesGenerated);
   const creatorFees = measurements.map((measurement) => measurement.creatorFees);
+  const earlyAdvantageMeasurements = measurements.filter(
+    (measurement) => measurement.earlyBuyerPriceAdvantageBps !== undefined,
+  );
+  const migrationSurplusMeasurements = measurements.flatMap((measurement) =>
+    measurement.migrationSurplus === undefined ? [] : [measurement.migrationSurplus],
+  );
   return {
     graduationFrequencyBps:
       (BigInt(graduated) * PERCENTILE_DENOMINATOR) / BigInt(measurements.length),
@@ -299,6 +453,44 @@ function summarizeMeasurements(
           ),
         }
       : {}),
+    ...(earlyAdvantageMeasurements.length === 0
+      ? {}
+      : {
+          earlyParticipantAdvantage: summarizeValues(
+            earlyAdvantageMeasurements.map((measurement) => ({
+              priceAdvantageBps: measurement.earlyBuyerPriceAdvantageBps as bigint,
+              firstTenPercentQuoteAveragePrice:
+                measurement.firstTenPercentQuoteAveragePrice as Decimal,
+              medianBuyerAveragePrice: measurement.medianBuyerAveragePrice as Decimal,
+              quoteVolume: {
+                asset: "quote" as const,
+                amount: currencyAmount(
+                  measurement.earlyParticipantQuoteVolumeRaw as bigint,
+                  quoteDecimals,
+                ),
+              },
+            })),
+            (left, right) =>
+              left.priceAdvantageBps < right.priceAdvantageBps
+                ? -1
+                : left.priceAdvantageBps > right.priceAdvantageBps
+                  ? 1
+                  : 0,
+          ),
+          earlyParticipantAdvantageSampleSize: BigInt(earlyAdvantageMeasurements.length),
+        }),
+    ...(migrationSurplusMeasurements.length === 0
+      ? {}
+      : {
+          migrationSurplus: summarizeValues(migrationSurplusMeasurements, (left, right) =>
+            left.overshootBps < right.overshootBps
+              ? -1
+              : left.overshootBps > right.overshootBps
+                ? 1
+                : 0,
+          ),
+          migrationSurplusSampleSize: BigInt(migrationSurplusMeasurements.length),
+        }),
     feesGenerated: summarizeFeePairs(fees),
     creatorFees: summarizeFeePairs(creatorFees),
     ...(hasSnipers
@@ -420,6 +612,17 @@ function maximumRelativeSpreadBps(measurements: readonly IterationMeasurements[]
     measurements.map(({ creatorFees }) => creatorFees.base.raw),
     measurements.map(({ creatorFees }) => creatorFees.quote.raw),
   ];
+  if (
+    measurements.some(
+      ({ earlyBuyerPriceAdvantageBps }) => earlyBuyerPriceAdvantageBps !== undefined,
+    )
+  ) {
+    scalarSamples.push(
+      measurements.flatMap(({ earlyBuyerPriceAdvantageBps }) =>
+        earlyBuyerPriceAdvantageBps === undefined ? [] : [earlyBuyerPriceAdvantageBps],
+      ),
+    );
+  }
   if (measurements.some(({ sniperExtractionQuoteRaw }) => sniperExtractionQuoteRaw !== undefined)) {
     scalarSamples.push(
       measurements.map(({ sniperExtractionQuoteRaw }) => sniperExtractionQuoteRaw ?? 0n),
