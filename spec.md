@@ -1715,6 +1715,8 @@ Validate the exact assembled configuration synchronously immediately before invo
 
 `previewDeploymentTransaction` accepts only a sufficient budget result and confirms that the unsigned legacy transaction still compiles to the exact fee-quoted message and declared signer set. It returns public instruction/program/account roles, required signer addresses, the message digest, blockhash expiry, and quoted budget components; it never returns a keypair, signature, or raw instruction data. Instruction names are decoded from the pinned DBC IDL. `simulateDeploymentTransaction` rechecks Devnet identity and blockhash lifetime, then simulates the same compiled legacy message with signature verification disabled and blockhash replacement disabled. It returns only the simulation slot, safe compute-unit count, and a sanitized success or failure category with an optional instruction index. It does not expose RPC logs, raw errors, account data, or return data, and it never signs or broadcasts. Simulation is evidence about that Devnet state and message at that time, not a guarantee of later execution.
 
+`recordExplicitDeploymentDecision` records only an explicit approve/reject decision from the transaction's fee-payer address and binds it to the preview digest. Any future wallet adapter must route signing/broadcast through `executeAfterExplicitDeploymentApproval`, which snapshots the unsigned transaction, recomputes its digest and required signer list, and checks the still-connected fee payer, pinned Devnet identity, confirmed block height, and blockhash expiry before invoking the action with that snapshot. Missing, rejected, stale, mismatched, or unavailable approval evidence must not invoke that callback. This gate is a domain adapter and is not yet wired to a wallet-signing or broadcast path.
+
 ---
 
 # 15. Transfer Hooks
@@ -2554,6 +2556,7 @@ type DeploymentApproval = {
   status: "pending" | "approved" | "rejected";
   recordedAtSeconds?: bigint;
   approverAddress?: string;
+  messageDigestHex?: string;
 };
 
 type DeploymentVerificationStatus =
@@ -2594,7 +2597,7 @@ type DeploymentRecord = {
 };
 ```
 
-The status fields describe lifecycle evidence, not authorization logic: runtime validation must enforce legal transitions and require recorded explicit user approval before signing or broadcast. Only public chain identifiers and transaction data belong in this record; never include private keys, seed phrases, signer objects, or other signing material. `verified` requires fetched on-chain state and a completed comparison; mismatches remain explicit and must not be hidden by a successful transaction confirmation.
+The status fields describe lifecycle evidence, not authorization logic: runtime validation must enforce legal transitions and require recorded explicit user approval before signing or broadcast. An approval is bound to the exact fee-quoted message digest and fee-payer wallet address. Immediately before an approved action, recompute the digest from the unsigned transaction, confirm the same wallet is connected, recheck the pinned Devnet endpoint/genesis and blockhash lifetime, and stop on any mismatch or unavailable check. Only public chain identifiers and transaction data belong in this record; never include private keys, seed phrases, signer objects, or other signing material. `verified` requires fetched on-chain state and a completed comparison; mismatches remain explicit and must not be hidden by a successful transaction confirmation.
 
 The current web preflight checks the fixed Solana Devnet RPC identity and a connected wallet's public Devnet account plus legacy-transaction capability. This is access readiness only: it creates no `DeploymentRecord`, validates no assembled SDK configuration or balance, and does not build, sign, or send a transaction. The budget adapter is tested separately but is not yet wired to an SDK transaction builder or the web preflight. A passing preflight must not advance deployment or candidate verification status.
 
