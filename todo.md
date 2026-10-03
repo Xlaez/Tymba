@@ -273,18 +273,26 @@ Goal: make the proven domain workflow understandable and demoable.
 
 ### Product flow
 
-- [ ] Add Describe view with structured intent fields.
-- [ ] Add optional natural-language intent input.
-- [ ] Validate and display the structured interpretation before solving.
-- [ ] Add Compile view with satisfiability status, candidate ranking, and conflicts.
-- [ ] Add curve visualization with segment selection and economic explanations.
-- [ ] Add deterministic simulation controls and metrics.
-- [ ] Add Attack My Market controls for all MVP attacks.
-- [ ] Add audit findings with severity and supporting metrics.
-- [ ] Add Harden Market action and before/after comparison.
-- [ ] Add advanced view for raw DBC parameters and units.
-- [ ] Add loading, error, empty, unsupported, and partial-result states.
-- [ ] Ensure the UI never presents modeled outcomes as guarantees.
+- [x] Add Describe view with structured intent fields.
+- [x] Add optional natural-language intent input.
+- [x] Validate and display the structured interpretation before solving.
+- [x] Add Compile view with satisfiability status, candidate ranking, and conflicts.
+- [x] Add curve visualization with segment selection and economic explanations.
+- [x] Add deterministic simulation controls and metrics.
+- [x] Add Attack My Market controls for all MVP attacks.
+- [x] Add audit findings with severity and supporting metrics.
+- [x] Add Harden Market action and before/after comparison.
+- [x] Add advanced view for raw DBC parameters and units.
+- [x] Add loading, error, empty, unsupported, and partial-result states.
+- [x] Ensure the UI never presents modeled outcomes as guarantees.
+
+First-six implementation notes: `pnpm dev` runs the local studio. Natural-language input is a retained, explicitly uninterpreted design note; automatic AI parsing remains later work. Compile ranks non-deployable curve drafts only. The reviewed configuration is explicit and editable; core-target status does not claim unmeasured preferences were enforced. Deterministic scripts retain clocks, partial fills, asset-specific fees, and modeled/unverified status. Phase 7 gates stay open until the remaining workflow is implemented.
+
+Next-five implementation notes: all attack controls use selected drafts and editable fixture assumptions; fixed-fee timing is explicitly unsupported. Audits recompute source inputs and retain raw metrics plus the complete versioned heuristic policy. Missing stochastic-cohort, paired capital-stress, and destination LP evidence stays unavailable. Hardening preserves original targets/settings and replays explicit scripts, stochastic seeds/populations, and retained attacks; unsupported mappings, target rejection, and partial/failed outcomes remain visible. Paired hardening currently requires attacks without warm-ups. Advanced views preserve exact atomic, Q64.64, and liquidity values. Reports, deployment and phase gates remain open.
+
+Final product-flow implementation notes: shared, visible evidence notices qualify review, core-target satisfiability, the mathematical curve graph, deterministic script completion, attack sample percentiles, heuristic severity, and per-metric hardening comparisons. Compile scope warnings stay expanded in the main result. LOW severity is not a safety certificate; unavailable evidence is not zero risk; completed hardening may be unchanged or worse. Partial improvement assessments are explicitly limited to available evidence. No signing or deployment is available. All Product flow items are checked; report artifacts and Phase 7 gates remain open.
+
+Verification: `pnpm check` passes 291 tests across 62 files; `pnpm build` passes; `TYMBA_WEB_TEST_BUILT=1 pnpm test:web` passes 18 browser checks. Coverage includes mixed completed/partial attack samples and paired hardening, unsupported fixed fees, explicit scheduled-fee sweeps without seeds, policy versioning, exact units, mobile layout, network retry, stale-response invalidation, visible claims limits, LOW/unavailable distinctions, and complete/partial/unavailable improvement assessments. Desktop and mobile evidence-notice screenshots were inspected. Solver evidence is retained from the original compile rather than solving twice; SDK-heavy tests use bounded worker concurrency.
 
 ### Report artifact
 

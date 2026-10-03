@@ -9,25 +9,36 @@
     "pnpm": "10.18.3"
   },
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
+    "dev": "vite --host 127.0.0.1",
+    "start": "node dist/src/web-api/index.js",
+    "build:domain": "tsc --project tsconfig.build.json",
+    "build:web": "vite build",
+    "build": "pnpm build:domain && pnpm build:web",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.web.json",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
-    "tymba": "pnpm build && node dist/src/cli/index.js"
+    "tymba": "pnpm build:domain && node dist/src/cli/index.js",
+    "test:web": "playwright test"
   },
   "dependencies": {
     "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.13",
-    "decimal.js": "10.6.0"
+    "decimal.js": "10.6.0",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.10",
+    "@playwright/test": "1.56.1",
     "@types/node": "^22.19.0",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
     "@vitest/coverage-v8": "3.2.7",
     "typescript": "5.9.3",
+    "vite": "7.3.6",
     "vitest": "3.2.7"
   }
 }

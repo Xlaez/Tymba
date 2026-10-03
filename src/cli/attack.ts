@@ -5,14 +5,14 @@ import { runPumpAndDumpAttack } from "../domain/attacks/pump-and-dump.js";
 import { runSellCascadeAttack } from "../domain/attacks/sell-cascade.js";
 import { runWhaleEntryAttack } from "../domain/attacks/whale-entry.js";
 import { validateMarketIntent } from "../domain/market-intent.js";
+import type { PoolState } from "../domain/pool-state.js";
+import { executeBuy, quoteBuy } from "../domain/simulator.js";
 import {
   validateSolverSimulationConfiguration,
   verifyCandidateWithDeterministicSimulator,
 } from "../domain/solver-deterministic-verification.js";
-import type { PoolState } from "../domain/pool-state.js";
-import { executeBuy, quoteBuy } from "../domain/simulator.js";
-import { convertConfigBigintStrings } from "./validate.js";
 import { compileDocument } from "./compile.js";
+import { convertConfigBigintStrings } from "./validate.js";
 
 const ARCHETYPES = [
   "retail-buyer",
@@ -157,7 +157,11 @@ export type CliAttackDocument = Readonly<{
   failure?: Readonly<{ code: string; message: string }>;
 }>;
 
-export function runAttackDocument(input: unknown, requestedScenario: string): CliAttackDocument {
+export function runAttackDocument(
+  input: unknown,
+  requestedScenario: string,
+  candidateId?: string,
+): CliAttackDocument {
   const scenario = normalizeScenario(requestedScenario);
   const request = requireRecord(input, "Attack request");
   assertAllowedKeys(
@@ -214,7 +218,14 @@ export function runAttackDocument(input: unknown, requestedScenario: string): Cl
       : { earlyPriceImpactProbeQuoteAtomic: request.earlyPriceImpactProbeQuoteAtomic }),
   };
   const compilation = compileDocument(compileInput);
-  const candidate = compilation.draftCandidates[0];
+  const candidate =
+    candidateId === undefined
+      ? compilation.draftCandidates[0]
+      : compilation.draftCandidates.find(({ id }) => id === candidateId);
+  if (candidateId !== undefined && !candidate)
+    throw new RangeError(
+      "Unknown candidate for this exact compile request. Recompile and select a draft.",
+    );
   if (!candidate) {
     return {
       schemaVersion: 1,
@@ -317,7 +328,7 @@ export function formatAttackDocument(document: CliAttackDocument): string {
   return lines.join("\n");
 }
 
-function executeAttack(
+export function executeAttack(
   scenario: CliAttackScenario,
   configuration: Record<string, unknown>,
   initialState: PoolState,
@@ -346,7 +357,7 @@ function executeAttack(
   }
 }
 
-function parseScenarioConfiguration(
+export function parseScenarioConfiguration(
   scenario: CliAttackScenario,
   input: Record<string, unknown>,
 ): Record<string, unknown> {
@@ -438,7 +449,7 @@ function parseScenarioConfiguration(
   return converted;
 }
 
-function validateAgentDistribution(value: unknown, label: string): void {
+export function validateAgentDistribution(value: unknown, label: string): void {
   const distribution = requireRecord(value, label);
   assertAllowedKeys(distribution, ["counts", "templates"], label);
   const counts = requireRecord(distribution.counts, `${label}.counts`);
@@ -468,7 +479,7 @@ function validateAgentDistribution(value: unknown, label: string): void {
   }
 }
 
-function convertAttackBigints(value: unknown, path: string, key?: string): unknown {
+export function convertAttackBigints(value: unknown, path: string, key?: string): unknown {
   if (key === "counts") {
     const counts = requireRecord(value, path);
     return Object.fromEntries(

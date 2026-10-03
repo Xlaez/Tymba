@@ -332,6 +332,8 @@ The LLM should translate natural language into structured constraints.
 
 The LLM must **not** invent or directly generate low-level DBC parameters without validation.
 
+The first Phase 7 web slice provides the optional natural-language input as an explicitly uninterpreted design note. It retains the note with reviewed input but requires users to enter its economic goals in the structured form. Automatic LLM interpretation remains the later AI implementation stage in §30; this input-only slice must not imply parsing or enforcement of prose.
+
 ---
 
 ## 5.3 Step 2 — Compile
@@ -3235,6 +3237,10 @@ Convert metrics into findings and suggested remediations.
 ---
 
 ## Phase 6 — UI
+
+Current root web implementation connects reviewed structured intent, curve-draft compilation and visualization, deterministic scripts, five explicit attack models, evidence-backed audits with a versioned heuristic policy, paired numeric-objective hardening, and exact advanced curve units. Outputs remain modeled/unverified and non-deployable. The web audit lacks standalone stochastic-cohort and paired late-capital-stress inputs; absent categories remain unavailable. Hardening requires a retained script, reviewed stochastic population/seed, and retained attack configurations without warm-ups. Full SDK config/supply validation, destination LP settlement, reports, deployment, and automatic prose interpretation remain separate pending work. Editing source inputs invalidates dependent results.
+
+The product-flow claims boundary uses shared, visible stage-specific evidence notices (`src/web/evidence.ts`, `src/web/EvidenceNotice.tsx`). Compile scope warnings are not hidden behind details. Satisfied core targets do not promise demand or fundraising; curve/script completion does not prove on-chain migration; attack percentiles are sample observations, not future bounds. LOW/MODERATE/HIGH remain provisional versioned heuristic classifications, not safety certificates, and missing evidence is not zero risk. Hardening run completion is distinct from per-metric improvement under tested inputs; partial comparisons remain explicitly partial and unavailable comparisons have no improvement assessment. These presentation constraints do not change domain metrics, policy thresholds, or verification status.
 
 Build:
 

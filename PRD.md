@@ -227,3 +227,39 @@ No implementation should turn an unresolved question into an undocumented assump
 - generalized DeFi protocol builder;
 - transfer hooks as a core launch feature;
 - mainnet deployment before devnet verification is reliable.
+
+## 12. Web workflow implementation brief
+
+The first web slice implements the first six Phase 7 tasks sequentially: structured Describe, optional prose input, reviewed validation, Compile, segment visualization, and scripted deterministic simulation. It stays inside the root package with React and Vite in `src/web` and a loopback-only Node API in `src/web-api`. The API orchestrates existing CLI/domain validators, the inverse solver, and the deterministic simulator; protocol mathematics remain outside the UI.
+
+- Form economics remain decimal strings. Only asset decimals and segment counts are structural numbers.
+- Prose is an optional design note, retained with the reviewed input. Automatic LLM interpretation is not implemented in this slice; users must enter its economic goals in the structured fields. Never imply the note was parsed or enforced.
+- Require an explicit successful review before solving. Editing intent or solver configuration invalidates review and downstream results.
+- Load the version-controlled compile fixture as an explicitly named demo configuration, show its objective weights and simulation assumptions, and allow editing the JSON configuration. Never infer missing fees, weights, clocks, or migration settings.
+- Display up to three deterministically ranked **curve drafts**, their measured target conflicts, explanations, and SDK curve-validation evidence. Full configuration and supply validation remain pending, so deployment is blocked and verification remains `unverified`.
+- Graph data and segment descriptions come from quantized curve math. Chart coordinates are presentation-only; economic values stay exact strings.
+- Scripted simulation starts afresh on the selected candidate, uses explicit human-unit buy/sell amounts and clocks, retains ordered trade results, and distinguishes curve completion from DAMM migration. No randomness, wallet, transaction, or invented settlement is involved.
+- Acceptance includes field errors and review invalidation, reproducible domain-backed compilation/simulation, candidate selection, keyboard-accessible segment selection, and responsive layout. Attack/audit/hardening UI, reports, deployment, and automatic AI parsing remain later tasks.
+
+### Next five web tasks
+
+Implement sequentially: all five attack controls, evidence-backed audits, numeric-objective hardening with paired replay, advanced exact units, then workflow-state coverage. Reuse the existing attack parsers, audit rules, and hardening engines; do not implement protocol math in React.
+
+- Attack configurations are explicit, editable fixture-derived JSON with atomic amounts, seeds, population, tick budget, and optional warm-up disclosed. Run against the selected draft, not an implicit first candidate. Fixed-fee timing sweeps are unsupported rather than silently changing the fee configuration.
+- Audit requests retain source inputs and recompute domain evidence. Client-supplied findings or metrics are never authoritative. Display raw metrics, evidence references, remediations and trade-offs, and the complete editable versioned heuristic severity policy. Missing stochastic, paired stress, or migration-accounting evidence is unavailable, not zero risk.
+- Hardening selects findings from the recomputed audit, adds explicit decimal-string numeric risk weights, preserves original intent/settings, and replays the same deterministic actions, explicitly configured stochastic population/seed, and attack configurations. Keep the baseline visible, show all comparison failures/partial results, and never optimize severity labels or promise improvement.
+- The advanced view exposes exact encoded curve values and explicit settings with atomic, Q64.64, liquidity, basis-point, slot, and timestamp units. It is not a complete deployable SDK configuration.
+- Acceptance: each attack is runnable or explicitly unsupported, repeatable inputs yield repeatable evidence, policy versions accompany every audit, hardening preserves targets or explains rejection, advanced values survive JSON serialization exactly, and editing upstream inputs invalidates downstream evidence. Loading, retry, validation, empty, unsupported, partial, and stale-response paths receive automated coverage. Reports, deployment, and phase gates remain open.
+
+Current technical boundaries: `/api/attack`, `/api/audit`, and `/api/harden` are synchronous local orchestration with bounded work, not saved sessions. Audit snapshots retain inputs and full source evidence; hardening recomputes the audit and never accepts authoritative client findings. The web audit currently has no standalone stochastic buyer-cohort or paired late-capital-stress input, so those categories remain unavailable. Paired hardening requires an explicit retained script, attack configuration(s) without warm-ups, and a separately reviewed stochastic population/seed. The advanced view covers curve drafts and simulator assumptions only, not assembled SDK config parameters. These restrictions do not weaken domain support or claim deployment readiness.
+
+### Final product-flow task: claims boundary
+
+Close only the remaining modeled-outcomes checklist item. Use shared, stage-specific evidence notices visible without expanding details, rather than relying on the footer or raw snapshots. Keep domain calculations, policy thresholds, and verification status unchanged.
+
+- A valid review checks input structure, not feasibility. Satisfied compile targets describe encoded curve calculations, not future demand, fundraising, or enforcement of unmeasured preferences. Show returned compile scope warnings beside the result.
+- The curve graph is a mathematical relationship, not a time/demand forecast. Script completion and 100% curve progress do not prove on-chain migration or destination settlement.
+- Attack completion means model execution, not immunity. Sample percentiles are not future bounds; retain partial/failed counts and distinguish unavailable evidence from zero risk.
+- LOW/MODERATE/HIGH remain versioned, provisional demo heuristics, not safety certificates, industry standards, or protocol guarantees. Explain this visibly before the findings and retain each raw metric and policy version.
+- Hardening completion is not proof of improvement. Qualify each comparison as specific to the tested inputs; unavailable comparisons receive no improvement assessment. Keep the baseline and non-deployable status visible.
+- Acceptance: automated coverage of visible caveats across review, compile, curve, simulation, attacks, audit and hardening, including partial/unavailable outcomes, LOW severity, unchanged hardening, and mobile layout. No deploy/sign action is introduced. Reports, Phase 7 gates, and deployment remain open.

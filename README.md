@@ -8,7 +8,7 @@ Product and architecture decisions are tracked in [`DECISIONS.md`](./DECISIONS.m
 
 ## Current status
 
-The repository contains the exact DBC math core and parity tests, a deterministic in-memory simulator, an illustrative scripted demo, and a validation CLI. The simulator and demo are modeled evidence, not an SDK-parity or on-chain guarantee. Consult [`todo.md`](./todo.md) and [`PROTOCOL_NOTES.md`](./PROTOCOL_NOTES.md) for implementation status and unresolved protocol checks.
+Phases 1–6 implement exact DBC math and parity checks, deterministic/stochastic simulation, inverse curve solving, five adversarial scenarios, and metric-based audit/hardening. Phase 7 now connects Describe, reviewed validation, ranked draft previews, curve explanations, deterministic scripts, all five attacks, evidence-backed audits, paired hardening comparisons, and advanced exact units. Outputs remain modeled/unverified; reports, complete configuration/supply validation, and devnet deployment are not implemented. Consult [`todo.md`](./todo.md) and [`PROTOCOL_NOTES.md`](./PROTOCOL_NOTES.md) for the remaining work.
 
 ## Requirements
 
@@ -20,6 +20,43 @@ Install dependencies with:
 ```sh
 pnpm install
 ```
+
+## Run the web studio
+
+From the root directory:
+
+```sh
+pnpm dev
+```
+
+Open [the local studio](http://127.0.0.1:5173). Review the prefilled structured intent, press **Validate & review**, confirm the reviewed intent/configuration, then **Compile reviewed intent**. Select a draft, explore its segments, and run or edit the deterministic trade script.
+
+Then choose **Attack My Market**, inspect its editable atomic-unit assumptions, and run one or more models. **Run economic audit** recomputes retained source inputs and shows raw measurements, supporting evidence, remediations, and the versioned illustrative `demo-v1` severity policy. Missing source runs are unavailable, not zero risk. Editing inputs clears dependent results; reloading clears the workspace.
+
+For **Harden Market**, retain a deterministic script and at least one attack, select findings, review the numeric risk weights and explicit stochastic replay population, confirm, and run the paired comparison. Opening-sniper profitability is supported; early-impact optimization also needs a first-buy finding matching an explicit compile probe. Other mappings explain why they are unsupported. Original targets/settings stay unchanged; improvement is not guaranteed. Attack warm-ups are currently unsupported in paired hardening replay. Expand the advanced view on either draft for exact atomic amounts, Q64.64 boundaries, liquidity scalars, and units.
+
+Evidence limits stay visible throughout the flow. Satisfied curve targets are not fundraising forecasts; script completion is not on-chain migration; attack percentiles are not future bounds; LOW severity is not a safety certificate. Hardening comparisons apply only to the tested inputs (or available partial evidence), and unavailable comparisons have no improvement assessment. The studio cannot sign or deploy transactions. Shared copy lives in `src/web/evidence.ts` with browser regression checks in `tests/e2e/evidence-claims.spec.ts`.
+
+The default compile fixture uses fixed fees, so fee-schedule timing is explicitly unsupported. To exercise it, edit the compile configuration using the `objectiveWeights` and `simulation` objects from [`examples/demo-attack-request.json`](./examples/demo-attack-request.json), then review and compile again. This explicitly enables the fixture’s timestamp-based scheduled fees; attacks never change fees automatically. Attack JSON presets are references for 9-decimal base / 6-decimal quote assets, not inferred appropriate behavior for other markets. Web workloads are bounded to 10 iterations, 100 ticks/agents, 2,000 agent-ticks per run, and up to 98 scheduled fee periods.
+
+The optional plain-English input is a retained design note, not an AI parser. Enter its economic goals in the structured fields. The editable configuration is explicitly loaded from [`examples/demo-compile-request.json`](./examples/demo-compile-request.json); its fees, weights, activation settings, and clocks are not inferred from preferences. Review is invalidated by edits. A satisfied core curve target is not a deployable config; unsupported preferences and pending full-config/supply validation remain visible.
+
+To run the built interface with the same local API:
+
+```sh
+pnpm build
+pnpm start
+```
+
+Both commands serve only on `127.0.0.1:5173`. Stop any existing studio on that port before starting another. The API has no wallets, signing, RPC, database, external AI, or saved sessions. Reloading clears this in-memory workspace. Scripted runs use the selected draft, explicit clocks, and fresh initial state; curve completion is not destination migration.
+
+Browser workflow checks:
+
+```sh
+pnpm test:web
+```
+
+Local tests use installed Google Chrome; CI installs Playwright Chromium. To check the built app instead of the development server, run `TYMBA_WEB_TEST_BUILT=1 pnpm test:web` after `pnpm build` with no studio already running. The domain/adapter suite remains `pnpm check`; browser tests are separate because they require a local server and browser.
 
 ## Project checks
 

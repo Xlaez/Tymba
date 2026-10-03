@@ -288,7 +288,7 @@ export function verifyCandidateWithDeterministicSimulator(
   return { status: "verified", simulation };
 }
 
-function createInitialPoolState(
+export function createInitialPoolState(
   market: NormalizedMarketIntent,
   curve: DbcCurve,
   configuration: SolverSimulationConfiguration,

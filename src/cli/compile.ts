@@ -1,18 +1,19 @@
 import { Decimal } from "decimal.js";
+import type { DbcCurve } from "../domain/curve.js";
 import type {
   InverseCurveCandidate,
   InverseCurveSolverIssue,
+  InverseCurveSolverResult,
 } from "../domain/inverse-curve-solver.js";
 import { solveMarketCurve } from "../domain/inverse-curve-solver.js";
-import type { DbcCurve } from "../domain/curve.js";
 import { validateMarketIntent } from "../domain/market-intent.js";
+import type { DeterministicSimulationMetrics } from "../domain/simulation.js";
 import { validateSolverSimulationConfiguration } from "../domain/solver-deterministic-verification.js";
 import type { SolverObjectiveWeights } from "../domain/solver-objective.js";
 import { SOLVER_OBJECTIVE_TERMS } from "../domain/solver-objective.js";
-import type { SolverRunRecord } from "../domain/solver-run-record.js";
-import type { DeterministicSimulationMetrics } from "../domain/simulation.js";
-import type { SdkCurveValidationEvidence } from "../domain/solver-sdk-validation.js";
 import type { SolverExplanation, SolverMetricSet } from "../domain/solver-result.js";
+import type { SolverRunRecord } from "../domain/solver-run-record.js";
+import type { SdkCurveValidationEvidence } from "../domain/solver-sdk-validation.js";
 import type { SolverStatus } from "../domain/status.js";
 import { convertConfigBigintStrings } from "./validate.js";
 
@@ -58,7 +59,10 @@ const COMPILE_REQUEST_FIELDS = new Set([
 const PLAIN_DECIMAL = /^(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const UNSIGNED_INTEGER = /^(?:0|[1-9]\d*)$/;
 
-export function compileDocument(input: unknown): CliCompileReport {
+export function compileDocument(
+  input: unknown,
+  retainSolver?: (result: InverseCurveSolverResult) => void,
+): CliCompileReport {
   if (!isRecord(input)) {
     return blockedReport(
       "invalid_compile_request",
@@ -147,6 +151,7 @@ export function compileDocument(input: unknown): CliCompileReport {
     simulation: simulationValidation.value,
     ...(earlyPriceImpactProbeQuoteAtomic === undefined ? {} : { earlyPriceImpactProbeQuoteAtomic }),
   });
+  retainSolver?.(solverResult);
   if (solverResult.status === "unsatisfied" || solverResult.candidates.length === 0) {
     const solverIssues = solverResult.issues.map((issue) => toCompileIssue(issue));
     return {
