@@ -319,7 +319,8 @@ Goal: deploy only an approved, validated configuration and verify the on-chain r
   - Verification: `pnpm check` passes 303 tests across 65 files; `pnpm build` passes. Gate tests prove invalid and throwing validators cannot call the builder. No actual SDK transaction builder is wired yet.
 - [x] Validate the fully assembled SDK candidate with `validateConfigParameters` and verify day-one minimum locked liquidity from complete vesting schedules (`src/meteora/complete-config-validation.ts`; four tests build candidates with pinned SDK 1.5.13, including a complete delayed-vesting schedule that yields 999 bps and is rejected. The adapter sanitizes SDK failures and is not yet wired to an application config or transaction builder.)
   - Verification: `pnpm check` passes format, lint, both TypeScript projects, and 307 tests across 66 files; `pnpm build` passes. No live RPC or transaction was used.
-- [ ] Add balance and fee-budget checks.
+- [x] Add balance and fee-budget checks (`src/meteora/deployment-budget.ts` rechecks the fixed Devnet identity, quotes the current message fee with a fresh blockhash, confirms payer SOL balance and rent for each declared new account, and includes explicit additional lamport debits. It returns slot/blockhash-scoped evidence and fails closed on signed or multi-signer transactions, missing fees, occupied rent targets, unsafe RPC numbers, or RPC errors. It is not yet connected to the web preflight or a transaction builder; all account rents and non-rent SOL costs must be declared by that builder.)
+  - Verification: `pnpm check` passes format, lint, both TypeScript projects, and 313 tests across 67 files; `pnpm build` passes. All RPC cases are mocked; no live RPC request or transaction was sent.
 - [ ] Add transaction preview and simulation.
 - [ ] Require explicit final user approval before signing/broadcasting.
 - [ ] Keep secrets and signing material out of logs, fixtures, reports, and errors.

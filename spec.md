@@ -1711,6 +1711,8 @@ Before broadcasting:
 
 Validate the exact assembled configuration synchronously immediately before invoking a transaction builder. Pass only the validator's normalized accepted value to that builder. Invalid validation results or thrown validator errors must stop construction; thrown SDK details must not be returned to logs or user-facing errors. Transaction construction is local preparation and does not sign or submit.
 
+`assessDeploymentBudget` accepts an unsigned legacy transaction and an explicit list of every account the builder plans to create, with each account's encoded data length. It requires the fixed Devnet RPC URL and genesis identity, obtains a fresh confirmed blockhash, quotes the message fee, checks the fee payer's confirmed SOL balance at or after that context slot, quotes rent exemption for each missing account, and adds all other SDK-declared lamport debits. It fails closed on an existing rent target, missing fee quote, unsafe RPC integer, or RPC error. The result is a time-bounded estimate, not a guarantee that later simulation or execution will succeed. The caller must include every rent account and every non-rent SOL debit; token-denominated costs require their own balance checks.
+
 ---
 
 # 15. Transfer Hooks
@@ -2592,7 +2594,7 @@ type DeploymentRecord = {
 
 The status fields describe lifecycle evidence, not authorization logic: runtime validation must enforce legal transitions and require recorded explicit user approval before signing or broadcast. Only public chain identifiers and transaction data belong in this record; never include private keys, seed phrases, signer objects, or other signing material. `verified` requires fetched on-chain state and a completed comparison; mismatches remain explicit and must not be hidden by a successful transaction confirmation.
 
-The current web preflight checks the fixed Solana Devnet RPC identity and a connected wallet's public Devnet account plus legacy-transaction capability. This is access readiness only: it creates no `DeploymentRecord`, validates no assembled SDK configuration or balance, and does not build, sign, or send a transaction. A passing preflight must not advance deployment or candidate verification status.
+The current web preflight checks the fixed Solana Devnet RPC identity and a connected wallet's public Devnet account plus legacy-transaction capability. This is access readiness only: it creates no `DeploymentRecord`, validates no assembled SDK configuration or balance, and does not build, sign, or send a transaction. The budget adapter is tested separately but is not yet wired to an SDK transaction builder or the web preflight. A passing preflight must not advance deployment or candidate verification status.
 
 ## 20.5 Shared validation, solver, and verification statuses
 
