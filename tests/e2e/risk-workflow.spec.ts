@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import fixture from "../../examples/demo-attack-request.json" with { type: "json" };
 
@@ -10,7 +11,7 @@ test("loading disables duplicates and discards stale attacks after edits", async
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   let release: () => void = () => {};
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -43,7 +44,7 @@ test("incomplete attack iterations remain explicit and cannot become zero-risk f
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await page.getByLabel("Attack configuration JSON").fill(
     JSON.stringify({
       ...fixture.attacks["opening-sniper"],
@@ -68,7 +69,7 @@ test("incomplete attack iterations remain explicit and cannot become zero-risk f
   await expect(outcome).toContainText(
     "Partial attack · completed iterations only contribute metrics",
   );
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expect(page.getByTestId("simulation-result")).toBeVisible();
   await page.getByRole("button", { name: "Run economic audit" }).click();
   await expect(page.getByTestId("audit-result")).toContainText("sniper-exposure · partial");
@@ -97,7 +98,7 @@ test("scheduled fees are explicit and deterministic fee timing has no invented s
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await page.getByLabel("Attack scenario", { exact: true }).selectOption("fee-schedule-timing");
   await page.getByRole("button", { name: "Run selected attack" }).click();
   await expect(page.getByTestId("attack-result-fee-schedule-timing")).toContainText(
@@ -116,7 +117,7 @@ test("advanced curve view preserves atomic values and explains encoded units", a
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await page.getByText(/^Advanced DBC curve parameters & units/).click();
   const advanced = page.locator(".advanced-view");
   await expect(advanced).toContainText("1000000000000000000");
@@ -134,13 +135,15 @@ test("hardening keeps the baseline and shows an exact paired comparison", async 
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expect(page.getByTestId("simulation-result")).toBeVisible();
   await page.getByRole("button", { name: "Run selected attack" }).click();
   await expect(page.getByTestId("attack-result-opening-sniper")).toBeVisible();
   await page.getByRole("button", { name: "Run economic audit" }).click();
-  await expect(page.getByRole("heading", { name: "Harden Market", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Compare a revised design", exact: true }),
+  ).toBeVisible();
   await page.getByRole("checkbox", { name: /^Opening-sniper profitability/ }).check();
   await page
     .getByRole("checkbox", {
@@ -165,13 +168,27 @@ test("audit shows measured evidence, heuristic policy and unavailable categories
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await page.getByRole("button", { name: "Run selected attack" }).click();
   await expect(page.getByTestId("attack-result-opening-sniper")).toBeVisible();
   await page.getByRole("button", { name: "Run economic audit" }).click();
   await expect(page.getByTestId("audit-result")).toContainText("demo/demo-v1");
   await expect(page.getByTestId("audit-result")).toContainText("migration-fragility · unavailable");
   await expect(page.getByTestId("audit-result")).toContainText("sniper-exposure · completed");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download versioned audit report" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^tymba-audit-report-.+-v1\.json$/);
+  const downloadedPath = await download.path();
+  if (!downloadedPath) throw new Error("The audit report download did not produce a file.");
+  const report = JSON.parse(await readFile(downloadedPath, "utf8")) as Record<string, unknown>;
+  expect(report).toMatchObject({
+    reportType: "tymba.market-audit-report",
+    schemaVersion: 1,
+    evidenceClassification: "modeled",
+    verificationStatus: "unverified",
+  });
+  expect(JSON.stringify(report)).not.toMatch(/privateKey|seedPhrase|walletSigningMaterial/);
   await page.getByLabel("Trade 1 amount", { exact: true }).fill("6000");
   await expect(page.getByTestId("audit-result")).toHaveCount(0);
   await page.getByRole("button", { name: "Run economic audit" }).click();
@@ -191,7 +208,7 @@ test("attack controls cover every model and distinguish fixed-fee unsupported re
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await expect(page.getByRole("heading", { name: "Attack My Market" })).toBeVisible();
   for (const scenario of [
     "opening-sniper",

@@ -29,11 +29,13 @@ From the root directory:
 pnpm dev
 ```
 
-Open [the local studio](http://127.0.0.1:5173). Review the prefilled structured intent, press **Validate & review**, confirm the reviewed intent/configuration, then **Compile reviewed intent**. Select a draft, explore its segments, and run or edit the deterministic trade script.
+Open [the local studio](http://127.0.0.1:5173). Follow the visible guide: set goals, check the values, create and compare curve drafts, replay trades, try modeled pressure, then review evidence and changes. Confirm the reviewed intent/configuration before selecting **Create curve drafts**. Select a draft, explore its curve sections, and run or edit the trade plan.
 
 Then choose **Attack My Market**, inspect its editable atomic-unit assumptions, and run one or more models. **Run economic audit** recomputes retained source inputs and shows raw measurements, supporting evidence, remediations, and the versioned illustrative `demo-v1` severity policy. Missing source runs are unavailable, not zero risk. Editing inputs clears dependent results; reloading clears the workspace.
 
 For **Harden Market**, retain a deterministic script and at least one attack, select findings, review the numeric risk weights and explicit stochastic replay population, confirm, and run the paired comparison. Opening-sniper profitability is supported; early-impact optimization also needs a first-buy finding matching an explicit compile probe. Other mappings explain why they are unsupported. Original targets/settings stay unchanged; improvement is not guaranteed. Attack warm-ups are currently unsupported in paired hardening replay. Expand the advanced view on either draft for exact atomic amounts, Q64.64 boundaries, liquidity scalars, and units.
+
+After running an audit, select **Download versioned audit report** to save a JSON artifact for the selected curve draft. Version 1 retains the intent, solver and SDK versions, exact candidate parameters, replay inputs and random seeds, findings, audit policy, and source evidence. Deterministic and fee-schedule runs are labeled as seedless. The export is modeled evidence, remains unverified, and contains no credentials or wallet signing material.
 
 Evidence limits stay visible throughout the flow. Satisfied curve targets are not fundraising forecasts; script completion is not on-chain migration; attack percentiles are not future bounds; LOW severity is not a safety certificate. Hardening comparisons apply only to the tested inputs (or available partial evidence), and unavailable comparisons have no improvement assessment. The studio cannot sign or deploy transactions. Shared copy lives in `src/web/evidence.ts` with browser regression checks in `tests/e2e/evidence-claims.spec.ts`.
 

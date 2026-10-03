@@ -61,7 +61,7 @@ export function Review({ review, busy, error, onReview }: Props) {
                 ? "Not specified"
                 : `${review.summary.baseDistributionPct}%`}
             </dd>
-            <dt>Segment limit</dt>
+            <dt>Maximum curve sections</dt>
             <dd>{review.summary.maxSegments}</dd>
           </dl>
           <p className="muted">

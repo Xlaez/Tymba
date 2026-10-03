@@ -1,5 +1,23 @@
 import { expect, test } from "@playwright/test";
 
+test("first-time guide explains the market-design workflow in plain language", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "How the studio works" })).toBeVisible();
+  const guide = page.getByRole("list").filter({ hasText: "Set goals" });
+  await expect(guide).toContainText("Check the values");
+  await expect(guide).toContainText("Compare designs");
+  await expect(guide).toContainText("Replay trades");
+  await expect(guide).toContainText("Try modeled pressure");
+  await expect(guide).toContainText("Review and improve");
+  const guideText = await guide.innerText();
+  expect(guideText).not.toContain("DBC");
+  expect(guideText).not.toContain("Q64.64");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+});
+
 test("Describe preserves human decimal input and resets the explicit demo", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Describe your market" })).toBeVisible();
@@ -27,17 +45,17 @@ test("Deterministic controls replay, invalidate changes, preserve partial fills,
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
-  await expect(page.getByRole("heading", { name: "Replay a deterministic market" })).toBeVisible();
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
+  await expect(page.getByRole("heading", { name: "Replay your trade plan" })).toBeVisible();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expect(page.getByText("Script completed", { exact: true })).toBeVisible();
   const before = await page.getByTestId("simulation-result").innerText();
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expect(page.getByText("Script completed", { exact: true })).toBeVisible();
   expect(await page.getByTestId("simulation-result").innerText()).toBe(before);
   await page.getByLabel("Trade 1 amount", { exact: true }).fill("0.0000001");
   await expect(page.getByTestId("simulation-result")).toHaveCount(0);
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expect(
     page.getByText("Script could not complete · no completed metrics", { exact: true }),
   ).toBeVisible();
@@ -45,7 +63,7 @@ test("Deterministic controls replay, invalidate changes, preserve partial fills,
   await page.getByRole("button", { name: "Remove trade 3" }).click();
   await page.getByRole("button", { name: "Remove trade 2" }).click();
   await page.getByLabel("Trade 1 amount", { exact: true }).fill("200000");
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expect(
     page.getByText("Script completed with partial fills", { exact: true }),
   ).toBeVisible();
@@ -72,7 +90,7 @@ test("Curve segments support keyboard selection and follow the selected draft", 
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await expect(
     page.getByRole("img", { name: "Spot price against cumulative net capital" }),
   ).toBeVisible();
@@ -84,16 +102,16 @@ test("Curve segments support keyboard selection and follow the selected draft", 
   );
   await expect(page.getByTestId("segment-detail")).toContainText("SEGMENT 2");
   await page.getByRole("button", { name: "Select draft 2" }).click();
-  await expect(page.getByRole("button", { name: "Segment 1", exact: true })).toHaveAttribute(
+  const curve = page.getByRole("region", { name: "The path to graduation" });
+  await expect(curve).toHaveCount(1);
+  await expect(curve.getByRole("button", { name: "Segment 1", exact: true })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
   await expect(
     page.getByText("Selected draft 2 · quantized curve economics", { exact: true }),
   ).toBeVisible();
-  await page
-    .getByRole("region", { name: "The path to graduation" })
-    .screenshot({ path: "test-results/curve-studio.png" });
+  await curve.screenshot({ path: "test-results/curve-studio.png" });
   expect(pageErrors).toEqual([]);
 });
 
@@ -109,12 +127,12 @@ test("Configuration edits require a new review and request errors are visible", 
   const editor = page.getByLabel("Compile configuration JSON");
   const configuration = await editor.inputValue();
   await editor.fill("{");
-  await expect(page.getByRole("button", { name: "Compile reviewed intent" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Create curve drafts" })).toBeDisabled();
   await page.getByRole("button", { name: "Validate & review" }).click();
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await editor.fill(configuration);
   await page.getByRole("button", { name: "Validate & review" }).click();
@@ -128,7 +146,7 @@ test("Configuration edits require a new review and request errors are visible", 
       body: JSON.stringify({ error: "The local engine is unavailable." }),
     }),
   );
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await expect(page.getByRole("alert")).toHaveText("The local engine is unavailable.");
   await expect(page.getByRole("button", { name: "Select draft 1" })).toHaveCount(0);
 });
@@ -156,7 +174,7 @@ test("Compile requires reviewed intent and displays ranked blocked drafts and co
   page,
 }) => {
   await page.goto("/");
-  const compile = page.getByRole("button", { name: "Compile reviewed intent" });
+  const compile = page.getByRole("button", { name: "Create curve drafts" });
   await expect(compile).toBeDisabled();
   await page.getByRole("button", { name: "Validate & review" }).click();
   await expect(

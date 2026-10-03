@@ -134,6 +134,8 @@ Reports must distinguish:
 
 Simulation output must be labeled as modeled evidence, not a prediction or guarantee.
 
+The web studio exports a versioned JSON report for a compiled market and completed or partial audit. It retains intent, explicit solver/simulation settings, selected candidate parameters and metrics, engine/algorithm/SDK versions, random seeds, audit policy and findings, and the source evidence needed to replay the modeled results. The report schema is versioned in `spec.md` §20.7. Exports exclude credentials and wallet signing material.
+
 ## 6. Non-functional requirements
 
 - Deterministic solver and simulator runs must be reproducible from inputs and seeds.
@@ -249,7 +251,7 @@ Implement sequentially: all five attack controls, evidence-backed audits, numeri
 - Audit requests retain source inputs and recompute domain evidence. Client-supplied findings or metrics are never authoritative. Display raw metrics, evidence references, remediations and trade-offs, and the complete editable versioned heuristic severity policy. Missing stochastic, paired stress, or migration-accounting evidence is unavailable, not zero risk.
 - Hardening selects findings from the recomputed audit, adds explicit decimal-string numeric risk weights, preserves original intent/settings, and replays the same deterministic actions, explicitly configured stochastic population/seed, and attack configurations. Keep the baseline visible, show all comparison failures/partial results, and never optimize severity labels or promise improvement.
 - The advanced view exposes exact encoded curve values and explicit settings with atomic, Q64.64, liquidity, basis-point, slot, and timestamp units. It is not a complete deployable SDK configuration.
-- Acceptance: each attack is runnable or explicitly unsupported, repeatable inputs yield repeatable evidence, policy versions accompany every audit, hardening preserves targets or explains rejection, advanced values survive JSON serialization exactly, and editing upstream inputs invalidates downstream evidence. Loading, retry, validation, empty, unsupported, partial, and stale-response paths receive automated coverage. Reports, deployment, and phase gates remain open.
+- Acceptance: each attack is runnable or explicitly unsupported, repeatable inputs yield repeatable evidence, policy versions accompany every audit, hardening preserves targets or explains rejection, advanced values survive JSON serialization exactly, and editing upstream inputs invalidates downstream evidence. Loading, retry, validation, empty, unsupported, partial, and stale-response paths receive automated coverage. The versioned report artifact and Phase 7 workflow gates are complete; deployment and automatic AI parsing remain later tasks.
 
 Current technical boundaries: `/api/attack`, `/api/audit`, and `/api/harden` are synchronous local orchestration with bounded work, not saved sessions. Audit snapshots retain inputs and full source evidence; hardening recomputes the audit and never accepts authoritative client findings. The web audit currently has no standalone stochastic buyer-cohort or paired late-capital-stress input, so those categories remain unavailable. Paired hardening requires an explicit retained script, attack configuration(s) without warm-ups, and a separately reviewed stochastic population/seed. The advanced view covers curve drafts and simulator assumptions only, not assembled SDK config parameters. These restrictions do not weaken domain support or claim deployment readiness.
 

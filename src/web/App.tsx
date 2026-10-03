@@ -28,6 +28,7 @@ export function App() {
   const [compiled, setCompiled] = useState<WebCompileResponse | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [compiledRequest, setCompiledRequest] = useState<unknown>(null);
+  const selectedCandidate = compiled?.candidates.find((candidate) => candidate.id === selectedId);
 
   function invalidate() {
     revision.current += 1;
@@ -102,16 +103,16 @@ export function App() {
             <span>01</span> Describe
           </a>
           <a href="#compile-title">
-            <span>02</span> Compile
+            <span>02</span> Drafts
           </a>
           <a href="#simulate-title">
-            <span>03</span> Simulate
+            <span>03</span> Replay
           </a>
           <a href="#attack-title">
-            <span>04</span> Attack
+            <span>04</span> Stress test
           </a>
           <a href="#audit-title">
-            <span>05</span> Audit
+            <span>05</span> Evidence
           </a>
         </nav>
         <div className="rail-bottom">
@@ -138,6 +139,53 @@ export function App() {
             </p>
           </div>
           <EvidenceNotice stage="workspace" />
+          <section className="workflow-guide-panel" aria-labelledby="workflow-guide-title">
+            <h2 id="workflow-guide-title">How the studio works</h2>
+            <ol className="workflow-guide">
+              <li>
+                <span className="workflow-guide-number">01</span>
+                <span>
+                  <strong>Set goals</strong>
+                  <small>Supply, opening value, graduation and capital</small>
+                </span>
+              </li>
+              <li>
+                <span className="workflow-guide-number">02</span>
+                <span>
+                  <strong>Check the values</strong>
+                  <small>Confirm the numbers match your plan</small>
+                </span>
+              </li>
+              <li>
+                <span className="workflow-guide-number">03</span>
+                <span>
+                  <strong>Compare designs</strong>
+                  <small>Choose a price path that fits your goals</small>
+                </span>
+              </li>
+              <li>
+                <span className="workflow-guide-number">04</span>
+                <span>
+                  <strong>Replay trades</strong>
+                  <small>See the result of the same trade plan</small>
+                </span>
+              </li>
+              <li>
+                <span className="workflow-guide-number">05</span>
+                <span>
+                  <strong>Try modeled pressure</strong>
+                  <small>Test large buys and waves of selling</small>
+                </span>
+              </li>
+              <li>
+                <span className="workflow-guide-number">06</span>
+                <span>
+                  <strong>Review and improve</strong>
+                  <small>Read the evidence and compare changes</small>
+                </span>
+              </li>
+            </ol>
+          </section>
           <div className="workspace-grid">
             <div className="flow">
               <Describe
@@ -192,17 +240,17 @@ export function App() {
                     quoteSymbol={fields.quoteSymbol}
                   />
                 ))}
-              {selectedId &&
-                compiledRequest !== null &&
-                compiled?.candidates.some((candidate) => candidate.id === selectedId) && (
-                  <RiskWorkflow
-                    key={selectedId}
-                    compileRequest={compiledRequest}
-                    candidateId={selectedId}
-                    baseSymbol={fields.baseSymbol}
-                    quoteSymbol={fields.quoteSymbol}
-                  />
-                )}
+              {selectedCandidate && compiled && selectedId && compiledRequest !== null && (
+                <RiskWorkflow
+                  key={selectedId}
+                  compileRequest={compiledRequest}
+                  compilation={compiled}
+                  candidate={selectedCandidate}
+                  candidateId={selectedId}
+                  baseSymbol={fields.baseSymbol}
+                  quoteSymbol={fields.quoteSymbol}
+                />
+              )}
               {!selectedId && (
                 <section className="panel" aria-label="Workflow prerequisites">
                   <h2>Simulation, attacks & audit</h2>

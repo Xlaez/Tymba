@@ -31,8 +31,8 @@ export function Compile(props: Props) {
       <div className="section-heading">
         <span className="step">02</span>
         <div>
-          <h2 id="compile-title">Compile curve drafts</h2>
-          <p>Explore ranked alternatives from the deterministic solver.</p>
+          <h2 id="compile-title">Choose a market design</h2>
+          <p>Compare designs ranked by how closely they match your goals.</p>
         </div>
       </div>
       <p className="muted">
@@ -74,7 +74,7 @@ export function Compile(props: Props) {
         disabled={!props.reviewed || !props.confirmed || props.busy}
         onClick={props.onCompile}
       >
-        {props.busy ? "Solving & checking drafts…" : "Compile reviewed intent"}
+        {props.busy ? "Creating & checking drafts…" : "Create curve drafts"}
       </button>
       {!props.reviewed && <p className="muted">Validate and review the current intent first.</p>}
       {props.error && (
@@ -132,7 +132,7 @@ export function Compile(props: Props) {
               >
                 <span className="candidate-heading">
                   <span>Draft {candidate.rank}</span>
-                  <span>{candidate.segmentCount} segments</span>
+                  <span>{candidate.segmentCount} curve sections</span>
                 </span>
                 <strong>
                   {candidate.quoteToMigration} <small>{quoteSymbol}</small>
@@ -144,9 +144,8 @@ export function Compile(props: Props) {
                   {quoteSymbol} graduation FDV
                 </span>
                 <span className="candidate-label">
-                  Objective loss{" "}
-                  {new Decimal(candidate.objectiveScore).toSignificantDigits(6).toFixed()} · lower
-                  is better
+                  Fit score {new Decimal(candidate.objectiveScore).toSignificantDigits(6).toFixed()}{" "}
+                  · lower is closer
                 </span>
                 <span className="candidate-label">
                   {candidate.conflicts.length
@@ -188,8 +187,8 @@ export function Compile(props: Props) {
             <summary>Scope, assumptions & reproducibility</summary>
             <ul className="issue-list">
               <li>
-                Draft preview ranking only: ascending exact objective loss, then candidate ID. This
-                is not the ranked deployable list or a global-optimum claim.
+                Draft preview ranking only: smallest fit score, then candidate ID. This is not the
+                ranked deployable list or a global-optimum claim.
               </li>
               <li>
                 Deterministic run: no random seed. Engine {result.engineVersion}; SDK{" "}

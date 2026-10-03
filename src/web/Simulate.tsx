@@ -69,8 +69,8 @@ export function Simulate({
       <div className="section-heading">
         <span className="step">03</span>
         <div>
-          <h2 id="simulate-title">Replay a deterministic market</h2>
-          <p>Ordered pool actions. Same draft and script, same outcome.</p>
+          <h2 id="simulate-title">Replay your trade plan</h2>
+          <p>Same design and trade sequence, same modeled outcome.</p>
         </div>
       </div>
       <p className="muted">
@@ -168,7 +168,7 @@ export function Simulate({
           Load demo script
         </button>
         <button type="button" onClick={() => void run()} disabled={busy || trades.length === 0}>
-          {busy ? "Replaying script…" : "Run deterministic simulation"}
+          {busy ? "Replaying trade plan…" : "Replay trade plan"}
         </button>
       </div>
       {busy && (

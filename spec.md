@@ -2632,6 +2632,61 @@ The pure domain validators enforce supported units and domain-level ranges befor
 
 These checks do not replace the pinned SDK's `validateConfigParameters` or establish protocol parity. In particular, the domain allocation shape does not include vesting schedules, so it cannot prove that at least 10% remains locked one day after migration. The SDK adapter must validate the complete schedule with `validateMinimumLockedLiquidity` before any configuration is accepted for compilation or deployment.
 
+## 20.7 Versioned market audit report
+
+The web studio exports a JSON artifact after a successful or partial audit. Version 1 uses the stable `reportType` value `tymba.market-audit-report` and a numeric `schemaVersion` of `1`. Consumers must reject unsupported versions rather than guessing how fields should be interpreted.
+
+The report includes the validated market intent, explicit objective weights and simulation settings, deterministic trade inputs, retained attack configurations, solver engine/algorithm/SDK versions, selected curve-draft parameters in their exact encoded units, measured candidate metrics, attack master and per-iteration seeds, audit policy/version, findings, and the complete retained source-evidence snapshot. Deterministic runs explicitly have no random seed; the fee-schedule boundary sweep is also seedless. The artifact has no generated timestamp or random report ID so identical inputs and results serialize reproducibly.
+
+The top-level contract is:
+
+```ts
+type MarketAuditReportV1 = {
+  reportType: "tymba.market-audit-report";
+  schemaVersion: 1;
+  evidenceClassification: "modeled";
+  verificationStatus: VerificationStatus;
+  input: {
+    marketIntent: JsonValue;
+    objectiveWeights: JsonValue;
+    simulation: JsonValue;
+    deterministicTrades: readonly JsonValue[];
+    attacks: readonly JsonValue[];
+  };
+  solver: {
+    status: "blocked" | "failed";
+    solverStatus?: SolverStatus;
+    engineVersion: string;
+    algorithmVersion: string;
+    sdkVersion: string;
+  };
+  candidate: {
+    id: string;
+    rank: number;
+    objectiveScore: string;
+    metrics: JsonValue;
+    parameters: JsonValue;
+  };
+  reproducibility: {
+    deterministicRun: { id: string; randomSeed: null; seedPolicy: string };
+    attacks: readonly {
+      scenario: string;
+      seedPolicy: string;
+      masterSeed: string | null;
+      iterationSeeds: readonly string[];
+    }[];
+  };
+  audit: {
+    status: "completed" | "partial";
+    policy: JsonValue;
+    categories: readonly JsonValue[];
+    sourceEvidence: JsonValue;
+  };
+};
+```
+
+The implementation is in `src/web/report.ts`. Sensitive object fields matching private-key, API-key, authentication-token, credential, secret, mnemonic, seed-phrase, signer, keypair, or signing-material names are excluded recursively. Simulation random seeds remain included because they reproduce modeled runs and are not wallet or signing secrets. Reports contain no wallet signing material, private keys, credentials, or deployment approval data. Version 1 is an exported artifact; it does not imply persistence, a hosted share link, SDK full-config validation, or on-chain verification.
+
 ---
 
 # 21. Verification Strategy

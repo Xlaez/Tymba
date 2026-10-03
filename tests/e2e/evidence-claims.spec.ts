@@ -16,7 +16,7 @@ async function compile(page: Page) {
   await page
     .getByRole("checkbox", { name: "I reviewed the structured intent and explicit configuration." })
     .check();
-  await page.getByRole("button", { name: "Compile reviewed intent" }).click();
+  await page.getByRole("button", { name: "Create curve drafts" }).click();
   await expectNotice(page, "compile");
 }
 
@@ -36,7 +36,7 @@ test("satisfied targets, curve progress and LOW severity keep visible evidence l
   await page.getByRole("button", { name: "Remove trade 3" }).click();
   await page.getByRole("button", { name: "Remove trade 2" }).click();
   await page.getByLabel("Trade 1 amount", { exact: true }).fill("200000");
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expect(
     page.getByText("Script completed with partial fills", { exact: true }),
   ).toBeVisible();
@@ -60,7 +60,7 @@ test("attack completion and hardening completion do not promise immunity or impr
   page,
 }) => {
   await compile(page);
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expectNotice(page, "simulation");
   await page.getByRole("button", { name: "Run selected attack" }).click();
   await expect(page.getByTestId("attack-result-opening-sniper")).toContainText("completed");
@@ -89,7 +89,7 @@ test("partial and unavailable comparisons never inherit a complete improvement c
   page,
 }) => {
   await compile(page);
-  await page.getByRole("button", { name: "Run deterministic simulation" }).click();
+  await page.getByRole("button", { name: "Replay trade plan" }).click();
   await expectNotice(page, "simulation");
   await page.getByRole("button", { name: "Run selected attack" }).click();
   await expect(page.getByTestId("attack-result-opening-sniper")).toBeVisible();

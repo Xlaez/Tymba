@@ -1,11 +1,18 @@
 import { useState } from "react";
-import type { WebAttackRequest, WebTradeInput } from "../web-api/contracts.js";
+import type {
+  WebAttackRequest,
+  WebCompileResponse,
+  WebDraftCandidate,
+  WebTradeInput,
+} from "../web-api/contracts.js";
 import { Attack } from "./Attack.js";
 import { Audit } from "./Audit.js";
 import { Simulate } from "./Simulate.js";
 
 export function RiskWorkflow(props: {
   compileRequest: unknown;
+  compilation: WebCompileResponse;
+  candidate: WebDraftCandidate;
   candidateId: string;
   baseSymbol: string;
   quoteSymbol: string;
@@ -32,6 +39,8 @@ export function RiskWorkflow(props: {
       />
       <Audit
         key={revision}
+        compilation={props.compilation}
+        candidate={props.candidate}
         request={{
           compileRequest: props.compileRequest,
           candidateId: props.candidateId,

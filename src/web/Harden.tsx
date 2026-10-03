@@ -65,7 +65,7 @@ export function Harden({
   }
   return (
     <section aria-labelledby="harden-title" aria-busy={busy} className="hardening">
-      <h3 id="harden-title">Harden Market</h3>
+      <h3 id="harden-title">Compare a revised design</h3>
       <p>
         Optimize supported numeric risk metrics, not severity labels. Targets, asset metadata, fees,
         clocks and original evidence remain unchanged. A new draft may be unchanged, worse on other

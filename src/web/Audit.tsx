@@ -1,11 +1,29 @@
 import { useRef, useState } from "react";
 import { DEMO_AUDIT_SEVERITY_POLICY } from "../domain/audit-policy.js";
-import type { WebAuditRequest, WebAuditResponse } from "../web-api/contracts.js";
+import type {
+  WebAuditRequest,
+  WebAuditResponse,
+  WebCompileResponse,
+  WebDraftCandidate,
+} from "../web-api/contracts.js";
 import { postJson } from "./api.js";
 import { EvidenceNotice } from "./EvidenceNotice.js";
 import { Harden } from "./Harden.js";
+import {
+  createMarketAuditReport,
+  marketAuditReportFilename,
+  serializeMarketAuditReport,
+} from "./report.js";
 
-export function Audit({ request }: { request: WebAuditRequest }) {
+export function Audit({
+  request,
+  compilation,
+  candidate,
+}: {
+  request: WebAuditRequest;
+  compilation: WebCompileResponse;
+  candidate: WebDraftCandidate;
+}) {
   const [policy, setPolicy] = useState(
     JSON.stringify(
       DEMO_AUDIT_SEVERITY_POLICY,
@@ -154,7 +172,31 @@ export function Audit({ request }: { request: WebAuditRequest }) {
         </p>
       )}
       {result && result.status !== "failed" && retainedRequest && (
-        <Harden audit={result} auditRequest={retainedRequest} />
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              const report = createMarketAuditReport({
+                request: retainedRequest,
+                compilation,
+                candidate,
+                audit: result,
+              });
+              const blob = new Blob([serializeMarketAuditReport(report)], {
+                type: "application/json;charset=utf-8",
+              });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = marketAuditReportFilename(candidate.id);
+              link.click();
+              window.setTimeout(() => URL.revokeObjectURL(url), 0);
+            }}
+          >
+            Download versioned audit report
+          </button>
+          <Harden audit={result} auditRequest={retainedRequest} />
+        </>
       )}
     </section>
   );
