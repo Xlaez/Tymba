@@ -26,6 +26,9 @@
   },
   "dependencies": {
     "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.13",
+    "@solana/wallet-standard-features": "1.5.0",
+    "@solana/web3.js": "1.99.0",
+    "@wallet-standard/app": "1.1.1",
     "decimal.js": "10.6.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"

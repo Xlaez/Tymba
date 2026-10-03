@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import type {
   WebAttackRequest,
   WebCompileResponse,
@@ -8,6 +8,11 @@ import type {
 import { Attack } from "./Attack.js";
 import { Audit } from "./Audit.js";
 import { Simulate } from "./Simulate.js";
+
+const DeploymentAccess = lazy(async () => {
+  const module = await import("./DeploymentAccess.js");
+  return { default: module.DeploymentAccess };
+});
 
 export function RiskWorkflow(props: {
   compileRequest: unknown;
@@ -48,6 +53,15 @@ export function RiskWorkflow(props: {
           ...(trades ? { trades } : {}),
         }}
       />
+      <Suspense
+        fallback={
+          <section className="panel" aria-label="Devnet access check">
+            <p>Loading Devnet access check…</p>
+          </section>
+        }
+      >
+        <DeploymentAccess />
+      </Suspense>
     </>
   );
 }

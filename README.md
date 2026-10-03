@@ -8,7 +8,7 @@ Product and architecture decisions are tracked in [`DECISIONS.md`](./DECISIONS.m
 
 ## Current status
 
-Phases 1–6 implement exact DBC math and parity checks, deterministic/stochastic simulation, inverse curve solving, five adversarial scenarios, and metric-based audit/hardening. Phase 7 now connects Describe, reviewed validation, ranked draft previews, curve explanations, deterministic scripts, all five attacks, evidence-backed audits, paired hardening comparisons, and advanced exact units. Outputs remain modeled/unverified; reports, complete configuration/supply validation, and devnet deployment are not implemented. Consult [`todo.md`](./todo.md) and [`PROTOCOL_NOTES.md`](./PROTOCOL_NOTES.md) for the remaining work.
+Phases 1–6 implement exact DBC math and parity checks, deterministic/stochastic simulation, inverse curve solving, five adversarial scenarios, and metric-based audit/hardening. Phase 7 connects Describe, reviewed validation, ranked draft previews, curve explanations, deterministic scripts, all five attacks, evidence-backed audits, paired hardening comparisons, and advanced exact units. Versioned report export and the Phase 7 product-flow gates are complete. Phase 8 has started with a read-only Devnet and wallet preflight; complete configuration/supply validation, balance checks, transaction preview/approval, deployment, and on-chain verification remain open. Modeled outputs remain unverified. Consult [`todo.md`](./todo.md) and [`PROTOCOL_NOTES.md`](./PROTOCOL_NOTES.md) for the current boundaries.
 
 ## Requirements
 
@@ -37,6 +37,8 @@ For **Harden Market**, retain a deterministic script and at least one attack, se
 
 After running an audit, select **Download versioned audit report** to save a JSON artifact for the selected curve draft. Version 1 retains the intent, solver and SDK versions, exact candidate parameters, replay inputs and random seeds, findings, audit policy, and source evidence. Deterministic and fee-schedule runs are labeled as seedless. The export is modeled evidence, remains unverified, and contains no credentials or wallet signing material.
 
+After selecting a curve draft, **Devnet access check** can confirm the configured public Devnet endpoint and explicitly connect a Wallet Standard wallet. It checks the network identity and public account only. It never builds, signs, or sends a transaction; configuration and balance validation are still pending. The browser makes a read-only request to the fixed public RPC endpoint only when **Check Devnet connection** is selected.
+
 Evidence limits stay visible throughout the flow. Satisfied curve targets are not fundraising forecasts; script completion is not on-chain migration; attack percentiles are not future bounds; LOW severity is not a safety certificate. Hardening comparisons apply only to the tested inputs (or available partial evidence), and unavailable comparisons have no improvement assessment. The studio cannot sign or deploy transactions. Shared copy lives in `src/web/evidence.ts` with browser regression checks in `tests/e2e/evidence-claims.spec.ts`.
 
 The default compile fixture uses fixed fees, so fee-schedule timing is explicitly unsupported. To exercise it, edit the compile configuration using the `objectiveWeights` and `simulation` objects from [`examples/demo-attack-request.json`](./examples/demo-attack-request.json), then review and compile again. This explicitly enables the fixture’s timestamp-based scheduled fees; attacks never change fees automatically. Attack JSON presets are references for 9-decimal base / 6-decimal quote assets, not inferred appropriate behavior for other markets. Web workloads are bounded to 10 iterations, 100 ticks/agents, 2,000 agent-ticks per run, and up to 98 scheduled fee periods.
@@ -50,7 +52,7 @@ pnpm build
 pnpm start
 ```
 
-Both commands serve only on `127.0.0.1:5173`. Stop any existing studio on that port before starting another. The API has no wallets, signing, RPC, database, external AI, or saved sessions. Reloading clears this in-memory workspace. Scripted runs use the selected draft, explicit clocks, and fresh initial state; curve completion is not destination migration.
+Both commands serve only on `127.0.0.1:5173`. Stop any existing studio on that port before starting another. The local API has no wallet, signing, RPC, database, external AI, or saved-session integration. The browser's Devnet preflight calls only the fixed public RPC endpoint when requested. Reloading clears this in-memory workspace. Scripted runs use the selected draft, explicit clocks, and fresh initial state; curve completion is not destination migration.
 
 Browser workflow checks:
 

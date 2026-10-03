@@ -241,7 +241,7 @@ The first web slice implements the first six Phase 7 tasks sequentially: structu
 - Display up to three deterministically ranked **curve drafts**, their measured target conflicts, explanations, and SDK curve-validation evidence. Full configuration and supply validation remain pending, so deployment is blocked and verification remains `unverified`.
 - Graph data and segment descriptions come from quantized curve math. Chart coordinates are presentation-only; economic values stay exact strings.
 - Scripted simulation starts afresh on the selected candidate, uses explicit human-unit buy/sell amounts and clocks, retains ordered trade results, and distinguishes curve completion from DAMM migration. No randomness, wallet, transaction, or invented settlement is involved.
-- Acceptance includes field errors and review invalidation, reproducible domain-backed compilation/simulation, candidate selection, keyboard-accessible segment selection, and responsive layout. Attack/audit/hardening UI, reports, deployment, and automatic AI parsing remain later tasks.
+- This original slice acceptance covered field errors and review invalidation, reproducible domain-backed compilation/simulation, candidate selection, keyboard-accessible segment selection, and responsive layout. The later attack/audit/hardening UI and versioned report export are implemented; deployment and automatic AI parsing remain open.
 
 ### Next five web tasks
 
@@ -264,4 +264,4 @@ Close only the remaining modeled-outcomes checklist item. Use shared, stage-spec
 - Attack completion means model execution, not immunity. Sample percentiles are not future bounds; retain partial/failed counts and distinguish unavailable evidence from zero risk.
 - LOW/MODERATE/HIGH remain versioned, provisional demo heuristics, not safety certificates, industry standards, or protocol guarantees. Explain this visibly before the findings and retain each raw metric and policy version.
 - Hardening completion is not proof of improvement. Qualify each comparison as specific to the tested inputs; unavailable comparisons receive no improvement assessment. Keep the baseline and non-deployable status visible.
-- Acceptance: automated coverage of visible caveats across review, compile, curve, simulation, attacks, audit and hardening, including partial/unavailable outcomes, LOW severity, unchanged hardening, and mobile layout. No deploy/sign action is introduced. Reports, Phase 7 gates, and deployment remain open.
+- Acceptance: automated coverage of visible caveats across review, compile, curve, simulation, attacks, audit and hardening, including partial/unavailable outcomes, LOW severity, unchanged hardening, and mobile layout. The report artifact and Phase 7 product-flow gates are complete. Phase 8 currently provides read-only network and wallet checks; configuration validation, signing, deployment, and on-chain verification remain open.

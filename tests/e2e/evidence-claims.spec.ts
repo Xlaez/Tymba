@@ -46,7 +46,7 @@ test("satisfied targets, curve progress and LOW severity keep visible evidence l
   await expect(page.getByTestId("audit-result")).toContainText("demo/demo-v1");
   await expect(page.locator(".severity-low").first()).toBeVisible();
   await expect(page.getByTestId("audit-result")).toContainText("migration-fragility · unavailable");
-  await expect(page.getByRole("button", { name: /deploy|sign|connect wallet/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /deploy|sign|broadcast/i })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expectNotice(page, "audit");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(

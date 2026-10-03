@@ -1,8 +1,10 @@
 # Meteora DBC Protocol Notes
 
-Research snapshot: 2026-10-02. These notes capture the implementation boundary for Tymba. The official SDK and deployed program remain authoritative; the notes do not replace parity testing against the pinned SDK.
+Research snapshot: 2026-10-02; runtime preflight note: 2026-10-03. These notes capture the implementation boundary for Tymba. The official SDK and deployed program remain authoritative; the notes do not replace parity testing against the pinned SDK.
 
 ## Verified from current official sources
+
+The [Solana `getGenesisHash` RPC documentation](https://solana.com/docs/rpc/http/getgenesishash) identifies `GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC` as the Devnet genesis hash. The Phase 8 browser preflight pins that identity and the public endpoint `https://api.devnet.solana.com`; it verifies the identity only when the user requests a check. A connected Wallet Standard account must advertise Devnet, support the pinned SDK's legacy transaction format, and emit account-change events ([Solana Wallet Standard extension](https://github.com/wallet-standard/wallet-standard/blob/master/extensions/solana.md)). The UI does not invoke wallet signing or sending. Browser tests mock the RPC response, so they do not establish current endpoint availability or on-chain behavior.
 
 | Area | Current evidence | Tymba implication |
 | --- | --- | --- |

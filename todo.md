@@ -292,7 +292,7 @@ Next-five implementation notes: all attack controls use selected drafts and edit
 
 Final product-flow implementation notes: shared, visible evidence notices qualify review, core-target satisfiability, the mathematical curve graph, deterministic script completion, attack sample percentiles, heuristic severity, and per-metric hardening comparisons. Compile scope warnings stay expanded in the main result. LOW severity is not a safety certificate; unavailable evidence is not zero risk; completed hardening may be unchanged or worse. Partial improvement assessments are explicitly limited to available evidence. No signing or deployment is available. All product-flow, report-artifact, and Phase 7 gate items are checked; Phase 8 devnet deployment and verification remain open.
 
-Verification: `pnpm check` passes 293 tests across 63 files; `pnpm build` passes; `pnpm test:web` passes all 19 browser checks. Coverage includes reproducible demo compilation, seeded attack and audit report output, report download/schema, mixed completed/partial attack samples and paired hardening, unsupported fixed fees, explicit scheduled-fee sweeps without seeds, policy versioning, exact units, mobile layout, network retry, stale-response invalidation, visible claims limits, LOW/unavailable distinctions, and complete/partial/unavailable improvement assessments. Desktop and mobile evidence-notice screenshots were inspected. Solver evidence is retained from the original compile rather than solving twice; SDK-heavy tests use bounded worker concurrency.
+Verification before Phase 8: `pnpm check` passed 293 tests across 63 files; `pnpm build` passed; `pnpm test:web` passed all 19 browser checks. Coverage includes reproducible demo compilation, seeded attack and audit report output, report download/schema, mixed completed/partial attack samples and paired hardening, unsupported fixed fees, explicit scheduled-fee sweeps without seeds, policy versioning, exact units, mobile layout, network retry, stale-response invalidation, visible claims limits, LOW/unavailable distinctions, and complete/partial/unavailable improvement assessments. Desktop and mobile evidence-notice screenshots were inspected. Solver evidence is retained from the original compile rather than solving twice; SDK-heavy tests use bounded worker concurrency.
 
 ### Report artifact
 
@@ -313,7 +313,8 @@ Goal: deploy only an approved, validated configuration and verify the on-chain r
 
 ### Safety and wallet flow
 
-- [ ] Add network and wallet validation.
+- [x] Add network and wallet validation (fixed Devnet RPC identity plus an explicitly connected Wallet Standard account; validates its Devnet chain, public-key consistency, legacy transaction capability, and account-change notifications. This is read-only setup evidence; automated RPC behavior is mocked and does not establish live Devnet availability.)
+  - First-increment verification: `pnpm check` passes 299 tests across 64 files; `pnpm build` passes; `pnpm test:web` passes 20 browser checks, including the mocked network/wallet connection flow and account-change invalidation. No live RPC request or transaction was sent during automated verification.
 - [ ] Add configuration validation immediately before transaction construction.
 - [ ] Validate the fully assembled SDK candidate with `validateConfigParameters` and verify day-one minimum locked liquidity from complete vesting schedules; domain allocation checks alone cannot prove this.
 - [ ] Add balance and fee-budget checks.
