@@ -317,7 +317,8 @@ Goal: deploy only an approved, validated configuration and verify the on-chain r
   - First-increment verification: `pnpm check` passes 299 tests across 64 files; `pnpm build` passes; `pnpm test:web` passes 20 browser checks, including the mocked network/wallet connection flow and account-change invalidation. No live RPC request or transaction was sent during automated verification.
 - [x] Add configuration validation immediately before transaction construction (`src/meteora/deployment-transaction-gate.ts` runs validation before the local builder, passes only the normalized accepted value, and blocks invalid or thrown validation. It introduces no signer or submission path; the pinned SDK configuration validator and actual builders remain subsequent work.)
   - Verification: `pnpm check` passes 303 tests across 65 files; `pnpm build` passes. Gate tests prove invalid and throwing validators cannot call the builder. No actual SDK transaction builder is wired yet.
-- [ ] Validate the fully assembled SDK candidate with `validateConfigParameters` and verify day-one minimum locked liquidity from complete vesting schedules; domain allocation checks alone cannot prove this.
+- [x] Validate the fully assembled SDK candidate with `validateConfigParameters` and verify day-one minimum locked liquidity from complete vesting schedules (`src/meteora/complete-config-validation.ts`; four tests build candidates with pinned SDK 1.5.13, including a complete delayed-vesting schedule that yields 999 bps and is rejected. The adapter sanitizes SDK failures and is not yet wired to an application config or transaction builder.)
+  - Verification: `pnpm check` passes format, lint, both TypeScript projects, and 307 tests across 66 files; `pnpm build` passes. No live RPC or transaction was used.
 - [ ] Add balance and fee-budget checks.
 - [ ] Add transaction preview and simulation.
 - [ ] Require explicit final user approval before signing/broadcasting.
