@@ -315,7 +315,8 @@ Goal: deploy only an approved, validated configuration and verify the on-chain r
 
 - [x] Add network and wallet validation (fixed Devnet RPC identity plus an explicitly connected Wallet Standard account; validates its Devnet chain, public-key consistency, legacy transaction capability, and account-change notifications. This is read-only setup evidence; automated RPC behavior is mocked and does not establish live Devnet availability.)
   - First-increment verification: `pnpm check` passes 299 tests across 64 files; `pnpm build` passes; `pnpm test:web` passes 20 browser checks, including the mocked network/wallet connection flow and account-change invalidation. No live RPC request or transaction was sent during automated verification.
-- [ ] Add configuration validation immediately before transaction construction.
+- [x] Add configuration validation immediately before transaction construction (`src/meteora/deployment-transaction-gate.ts` runs validation before the local builder, passes only the normalized accepted value, and blocks invalid or thrown validation. It introduces no signer or submission path; the pinned SDK configuration validator and actual builders remain subsequent work.)
+  - Verification: `pnpm check` passes 303 tests across 65 files; `pnpm build` passes. Gate tests prove invalid and throwing validators cannot call the builder. No actual SDK transaction builder is wired yet.
 - [ ] Validate the fully assembled SDK candidate with `validateConfigParameters` and verify day-one minimum locked liquidity from complete vesting schedules; domain allocation checks alone cannot prove this.
 - [ ] Add balance and fee-budget checks.
 - [ ] Add transaction preview and simulation.

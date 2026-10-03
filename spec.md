@@ -1709,6 +1709,8 @@ Before broadcasting:
 ✓ transaction simulation succeeds
 ```
 
+Validate the exact assembled configuration synchronously immediately before invoking a transaction builder. Pass only the validator's normalized accepted value to that builder. Invalid validation results or thrown validator errors must stop construction; thrown SDK details must not be returned to logs or user-facing errors. Transaction construction is local preparation and does not sign or submit.
+
 ---
 
 # 15. Transfer Hooks
@@ -2633,6 +2635,8 @@ type ConfigurationValidationResult<Value> =
 The pure domain validators enforce supported units and domain-level ranges before compilation: base fees are 25–9,900 bps; scheduled periods fit `u16`, period frequency fits `u64`, and the accepted schedule is strictly declining; dynamic-fee bin step is 1 bp, filter period is shorter than decay period, reduction factor is at most 10,000 bps, and volatility/control values fit `u24`. SDK percentage inputs must be representable as whole percentages (basis points divisible by 100): creator trading-fee share and DAMM v2 liquidity buckets use 0–100%; migration fee uses 0–99%, with creator share 0–100% and zero when migration fee is zero. Migrated-pool fees are 10–1,000 bps; compounding mode requires a 1–10,000 bps compounding fee and other modes reject that field. Allocation intent must sum to 10,000 bps with at least 1,000 bps assigned to locked intent; six DAMM v2 liquidity buckets must sum to 10,000 bps. A supplied lock duration must be positive and no greater than two years.
 
 These checks do not replace the pinned SDK's `validateConfigParameters` or establish protocol parity. In particular, the domain allocation shape does not include vesting schedules, so it cannot prove that at least 10% remains locked one day after migration. The SDK adapter must validate the complete schedule with `validateMinimumLockedLiquidity` before any configuration is accepted for compilation or deployment.
+
+The implementation boundary `constructDeploymentTransactionAfterValidation` runs a supplied validator immediately before a supplied local builder, forwards only the validated value, and blocks on invalid results or exceptions. It is an ordering/safety boundary; the pinned SDK candidate validator and actual transaction builders remain subsequent work.
 
 ## 20.7 Versioned market audit report
 
