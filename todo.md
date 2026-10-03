@@ -330,7 +330,8 @@ Goal: deploy only an approved, validated configuration and verify the on-chain r
 
 ### Deployment
 
-- [ ] Build the Meteora configuration through the pinned SDK adapter.
+- [x] Build the Meteora configuration through the pinned SDK adapter (`src/meteora/deployment-config-builder.ts` revalidates the full candidate immediately before pinned SDK 1.5.13 `partner.createConfig`, is restricted to the fixed Devnet endpoint, and returns one unsigned config instruction with explicit fee payer and config signer public address. It creates no keypair and does not sign, send, or call RPC. Exact config account allocation/rent remains unverified and must be source-verified before a complete budget can be accepted.)
+  - Verification: `pnpm check` passes formatting, lint, both TypeScript projects, and 328 tests across 70 files; `pnpm build` passes. Four focused tests use the actual pinned SDK builder and cover the unsigned instruction, signer roles, invalid-candidate gate, colliding signer addresses, and network restriction. No live RPC request, signature, wallet call, or transaction was sent.
 - [ ] Create config/pool on devnet.
 - [ ] Capture signatures, addresses, transaction links, and deployment metadata.
 - [ ] Fetch deployed on-chain state.
