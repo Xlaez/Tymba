@@ -38,3 +38,21 @@ jobs:
       - name: Deploy GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+      - name: Verify deployed metadata assets
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --retry 8 --retry-delay 5 --retry-all-errors \
+            "${PAGE_URL}devnet-token-metadata.json" \
+            -o "$RUNNER_TEMP/devnet-token-metadata.json"
+          curl --fail --silent --show-error --retry 8 --retry-delay 5 --retry-all-errors \
+            "${PAGE_URL}devnet-token-metadata.svg" \
+            -o "$RUNNER_TEMP/devnet-token-metadata.svg"
+          PAGE_URL="$PAGE_URL" node --input-type=module -e '
+            import fs from "node:fs";
+            const metadata = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/devnet-token-metadata.json", "utf8"));
+            const svg = fs.readFileSync(process.env.RUNNER_TEMP + "/devnet-token-metadata.svg", "utf8");
+            const expectedImage = new URL("devnet-token-metadata.svg", process.env.PAGE_URL).href;
+            if (metadata.image !== expectedImage || !svg.startsWith("<svg")) process.exit(1);
+          '
