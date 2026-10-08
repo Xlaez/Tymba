@@ -1,0 +1,16 @@
+{
+  "name": "Tymba Devnet Demo",
+  "symbol": "MKT",
+  "description": "Seeded Devnet test token for Tymba demo-v1. This test asset has no financial value.",
+  "image": "https://xlaez.github.io/Tymba/devnet-token-metadata.svg",
+  "attributes": [
+    {
+      "trait_type": "Network",
+      "value": "Solana Devnet"
+    },
+    {
+      "trait_type": "Tymba profile",
+      "value": "demo-v1"
+    }
+  ]
+}

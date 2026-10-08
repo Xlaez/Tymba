@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Tymba Devnet Demo</title>
+  <desc id="description">A test-only token image for the seeded demo-v1 Devnet fixture.</desc>
+  <rect width="512" height="512" rx="96" fill="#101a2b" />
+  <path d="M118 156h276v52H290v148h-68V208h-104z" fill="#85f4d0" />
+  <circle cx="360" cy="352" r="22" fill="#fdc77c" />
+</svg>
