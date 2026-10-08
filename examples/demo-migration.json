@@ -106,7 +106,7 @@
     "The SDK custom-curve helper receives one equal weight per segment only to assemble the remaining SDK fields; its generated curve is discarded and replaced with the exact quantized compiler curve.",
     "The compile fixture's slot zero is a simulator clock. The actual pool activation point is established when the pool is initialized.",
     "The Circle Devnet USDC mint address is a candidate only until read-only live mint checks and the full migration gate pass.",
-    "The metadata JSON is local and unpublished. The URI placeholder must be replaced with a stable HTTPS or IPFS URL before transaction assembly for live use.",
+    "The metadata JSON and SVG are hosted on GitHub Pages at stable HTTPS URLs. The fixture retains DEVNET_METADATA_URI_REQUIRED; callers must explicitly resolve the published JSON URI before transaction assembly.",
     "The connected deployer wallet is used for all listed runtime roles. Config and base-mint signer keypairs are created only at runtime and are not stored in this fixture or report.",
     "The pinned SDK DAMM v2 mapping uses the time-linear base-fee mode with a zero-period market-cap scheduler; the seeded 100 bps migrated-pool fee therefore has no fee schedule progression."
   ]

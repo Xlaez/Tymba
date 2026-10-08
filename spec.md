@@ -1,4 +1,4 @@
-Warning: truncated output (original token count: 33895)
+Warning: truncated output (original token count: 33881)
 Total output lines: 3558
 
 # Tymba — Product & Technical Specification
@@ -744,7 +744,299 @@ type NormalizedSolverInput = {
 };
 ```
 
-Fee and migration configuration inputs use the domain types and are validated before they are included. If either is omitted, normalization preserves that omission; it must not silently synthesize a fee or allocation policy. The `MarketIntent.migration` percentages are economic allocation intent, not a six-bucket DAMM v2 allocation, and must not be mapped automatically while that mapping remains unresolved. JSON adapters represent protocol-sized…21895 tokens truncated…meters` or establish protocol parity. In particular, the domain allocation shape does not include vesting schedules, so it cannot prove that at least 10% remains locked one day after migration. `validateCompleteSdkConfigCandidate` in `src/meteora/complete-config-validation.ts` requires the complete fixed-supply amounts, a non-default leftover receiver, and both SDK vesting schedules; it checks the one day locked-liquidity basis points with `calculateLockedLiquidityBpsAtTime` and `validateMinimumLockedLiquidity`, then invokes the pinned SDK's `validateConfigParameters`. SDK exceptions are replaced with a static safe issue. Its `sdk-validated` result is candidate evidence only and does not imply signing, submission, or on-chain verification.
+Fee and migration configuration inputs use the domain types and are validated before they are included. If either is omitted, normalization preserves that omission; it must not silently synthesize a fee or allocation policy. The `MarketIntent.migration` percentages are economic allocation intent, not a six-bucket DAMM v2 allocation, and must not be mapped automatically while that mapping remains unresolved. JSON adapters represent protocol-sized integer configuration values as decimal strings before converting them to domain `bigint` values.
+
+The MVP solver accepts 1–16 segments, corresponding to at most 16 public-builder curve entries and 17 sqrt-price boundaries including the start. The normalized default is three segments when no maximum is supplied. Do not use JavaScript `number` or `CurrencyAmount` for human economic prices or FDV.
+
+Initial candidate generation uses a fixed three-segment count. When `maxSegments` is one or two, the initial count is reduced to that limit; otherwise it remains three. The initial search does not increase the segment count automatically.
+
+The initial price grid is linearly spaced in human price between the exact normalized start and migration prices. Interior boundaries use 512-significant-digit decimal arithmetic with half-up rounding; both endpoints remain unchanged. If an interior point cannot remain strictly distinct at that precision, reject the grid instead of emitting duplicate or descending prices. These economic boundaries are only search seeds; protocol quantization and validation happen before simulation.
+
+---
+
+## 7.2 Output
+
+```ts
+type SolverMetricSet = {
+  quoteToMigration: CurrencyAmount;
+  baseDistributed: CurrencyAmount;
+  baseDistributedBps: bigint;
+  migrationPrice: Decimal;
+  migrationFdv: Decimal;
+};
+
+type SolvedMarketCandidate = {
+  id: string;
+  curve: DbcCurve;
+  metrics: SolverMetricSet;
+  fees: FeeConfiguration;
+  migration: MigrationConfiguration;
+  objectiveScore: Decimal;
+  verificationStatus: VerificationStatus;
+  explanations: SolverExplanation[];
+};
+
+type SolverResult = {
+  status: SolverStatus;
+  candidates: SolvedMarketCandidate[];
+  warnings: SolverWarning[];
+};
+```
+
+Return up to three candidates in deterministic rank order, with lower objective score first and candidate id as the tie-breaker. A candidate without at least `sdk-validated` evidence is excluded from the ranked deployable list. Solver statuses are defined in §20.5. An `unsatisfied` result has no deployable candidates; `partial` candidates must explain which constraints remain unmet. `CurrencyAmount` represents token quantities in atomic units, `Decimal` represents human economic prices/FDV and the solver objective, and percentages are integer basis points (`10_000` = 100%). `verificationStatus` describes the strongest evidence actually completed and must not be inferred from a local structural check.
+
+Each candidate includes a per-segment liquidity explanation with the price band, protocol liquidity, locally calculated quote absorption and base distribution, and each segment's share of the curve totals. It identifies whether quote-fit and distribution-fit terms are weighted in the objective. These measured consequences explain the allocation trade-off; they do not claim the optimizer found a global optimum or that unmeasured attack behavior is safe.
+
+The status reducer considers only candidates that already pass hard feasibility and protocol validation. No feasible candidates means `unsatisfied`; any feasible candidate meeting all requested constraints within their defined tolerances means `satisfied`; otherwise, feasible candidates with at least one unmet requested constraint mean `partial`. Verification evidence is reported separately and does not change economic constraint status.
+
+A target conflict warning states the requested economic value, the candidate's measured value, the signed difference, and whether the candidate is above or below target. It also carries a structured alternative that can be applied to the corresponding intent field. Such an alternative is a measurable revised goal, not a promise that a later compile will reproduce the same candidate.
+
+---
+
+## 7.3 Curve segment
+
+The domain curve stores encoded Q64.64 square-root price boundaries and unsigned protocol liquidity as `bigint`. Each segment is an interval between adjacent boundaries; the upper boundary and liquidity compile to one SDK curve entry shaped as `{ sqrtPrice: BN, liquidity: BN }`. The curve's migration quote threshold is a quote-token atomic amount encoded as `u64`.
+
+```ts
+type CurveSegment = {
+  lowerSqrtPriceQ64x64: bigint;
+  upperSqrtPriceQ64x64: bigint;
+  liquidity: bigint;
+};
+
+type DbcCurve = {
+  baseDecimals: number;
+  quoteDecimals: number;
+  startSqrtPriceQ64x64: bigint;
+  migrationQuoteThresholdAtomic: bigint;
+  segments: CurveSegment[];
+};
+```
+
+Generated curves contain 1–16 contiguous segments, equivalent to 2–17 sqrt-price boundaries. Segment boundaries and liquidity must be positive, each upper boundary must exceed its lower boundary, and each segment must begin at the previous boundary. SDK-specific supported square-root price bounds and full configuration legality remain subject to the pinned SDK validator; structural validation alone does not prove a deployable config.
+
+For user-facing explanations, derive each segment's price range, quote absorption, base distribution, and purpose from this protocol representation and the verified simulator output. Do not store those economic outputs as JavaScript `number` values.
+
+Before simulation, candidate validation checks positive u128 liquidity, the 1–16 public-builder segment limit and user maximum, exact N+1 boundary count, strictly increasing human and Q64.64 prices, positive u64 migration threshold, and that calculated base distribution does not exceed the positive u64 total supply. The quote threshold must not exceed the curve's locally calculated quote capacity. These are necessary local candidate checks, not sufficient Meteora config validation or a substitute for the pinned SDK's fixed/dynamic supply validator; the accounting boundary for supply remains subject to the verification limits in `PROTOCOL_NOTES.md`.
+
+The 20-entry legacy stored-config capacity is not the public-builder entry limit. Any future config-import path must model that legacy capacity separately.
+
+---
+
+## 7.4 Optimization formulation
+
+Given `N <= maxSegments`, determine:
+
+```text
+P1 ... PN
+L1 ... LN
+```
+
+subject to:
+
+```text
+P0 < P1 < P2 ... < PN
+Li > 0
+N <= protocol limit
+```
+
+Primary equations:
+
+```text
+Σ Li * (sqrt(Pi) - sqrt(Pi-1))
+≈ target quote
+```
+
+and:
+
+```text
+Σ Li * (
+    1 / sqrt(Pi-1)
+    -
+    1 / sqrt(Pi)
+)
+≈ target base distribution
+```
+
+Additional objectives may minimize:
+
+```text
+quote error
+distribution error
+migration-price error
+early price impact
+curve complexity
+sniper profitability
+```
+
+---
+
+## 7.5 Candidate objective function
+
+```text
+loss =
+  w1 * normalized_quote_error
++ w2 * normalized_distribution_error
++ w3 * normalized_migration_price_error
++ w4 * early_slippage_penalty
++ w5 * attack_profitability_penalty
++ w6 * segment_complexity_penalty
+```
+
+Objective weights are explicit `Decimal` inputs, must be non-negative, and must sum exactly to one. Tymba does not silently assign weights. A positively weighted term requires its measurement; a zero-weight term may be omitted. The objective score is the weighted sum, and the per-term penalties, weights, contributions, raw measurements, and evidence references are retained for explanation and reproducibility.
+
+Normalize the terms as follows:
+
+- Quote error: `abs(achievedQuoteAtomic - targetQuoteAtomic) / targetQuoteAtomic`; the target must be positive.
+- Distribution error: `abs(achievedBps - targetBps) / 10_000`.
+- Migration-price error: `abs(achievedPrice - targetPrice) / targetPrice`; the target must be positive.
+- Early price-impact penalty: measure a single deterministic buy against the candidate's initial state using an explicitly supplied positive quote-atomic probe and retain the deterministic simulation id. If an impact limit is supplied, use `max(achievedImpactBps - limitBps, 0) / 10_000`; otherwise use `achievedImpactBps / 10_000`. There is no implicit probe-size default.
+- Attack-profitability penalty: `max(attackerProfitQuoteAtomic, 0) / attackerCapitalQuoteAtomic`; capital must be positive. A positively weighted attack term requires an identifi…17881 tokens truncated…tion-surplus-bps"
+  | "unlocked-post-migration-liquidity-bps";
+
+type AuditMetricObservation = {
+  category: AuditFindingCategory;
+  ruleId: string;
+  source: AuditEvidenceSource;
+  reference: string;
+  metric: AuditSeverityMetric;
+  valueBps: bigint;
+  metricDescription: string;
+  supportingEvidence?: readonly AuditEvidence[];
+};
+
+type OpeningSniperAuditRun = {
+  result: OpeningSniperResult;
+  capitalAtRiskQuote: AssetAmount<"quote">;
+};
+
+type LateStageCapitalStressPair = {
+  baselineRun: StochasticSimulationResult;
+  lateStageStressRun: StochasticSimulationResult;
+  lateStageQuoteCapitalReductionBps: bigint;
+};
+
+type FeeShockAuditRun = {
+  result: FeeScheduleTimingResult;
+  initialState: PoolState;
+};
+
+type PriceStabilityAuditResult = {
+  auditId: string;
+  candidateId: string;
+  category: "price-stability";
+  status: "completed" | "partial" | "unavailable";
+  evidenceClassification: "modeled";
+  severityPolicy: AuditSeverityPolicy;
+  observations: readonly AuditMetricObservation[];
+  findings: readonly AuditFinding[];
+};
+```
+
+Each evidence reference must resolve to a retained run, parity case, or on-chain observation and identify the exact metric/unit. A finding must not claim stronger evidence than its source supports. Remediations are suggestions tied to controllable inputs and must state material trade-offs; finding creation rejects a recommendation without an explicit trade-off. Findings are not guarantees or a single-number safety score. Audit outputs retain raw per-metric observations and classifications; they do not produce aggregate safety or risk scores.
+
+## 20.4 Deployment record contracts
+
+```ts
+type DeploymentStatus =
+  | "prepared"
+  | "awaiting-user-approval"
+  | "rejected"
+  | "submitted"
+  | "confirmed"
+  | "verified"
+  | "failed";
+
+type DeploymentApproval = {
+  status: "pending" | "approved" | "rejected";
+  recordedAtSeconds?: bigint;
+  approverAddress?: string;
+  messageDigestHex?: string;
+};
+
+type DeploymentVerificationStatus =
+  | "not-started"
+  | "pending"
+  | "verified"
+  | "mismatch"
+  | "failed";
+
+type DeploymentMismatch = {
+  path: string;
+  expected: string;
+  actual: string;
+};
+
+type DeploymentVerification = {
+  status: DeploymentVerificationStatus;
+  checkedAtSlot?: bigint;
+  mismatches: readonly DeploymentMismatch[];
+};
+
+type DeploymentRecord = {
+  id: string;
+  candidateId: string;
+  network: "devnet";
+  status: DeploymentStatus;
+  approval: DeploymentApproval;
+  configAddress?: string;
+  poolAddress?: string;
+  transactionSignatures: readonly string[];
+  engineVersion: string;
+  sdkVersion: string;
+  preparedAtSeconds: bigint;
+  submittedAtSeconds?: bigint;
+  confirmedSlot?: bigint;
+  verifiedAtSeconds?: bigint;
+  verification: DeploymentVerification;
+};
+```
+
+The status fields describe lifecycle evidence, not authorization logic: runtime validation must enforce legal transitions and require recorded explicit user approval before signing or broadcast. An approval is bound to the exact fee-quoted message digest and fee-payer wallet address. Immediately before an approved action, recompute the digest from the unsigned transaction, confirm the same wallet is connected, recheck the pinned Devnet endpoint/genesis and blockhash lifetime, and stop on any mismatch or unavailable check. Only public chain identifiers and transaction data belong in this record; never include private keys, seed phrases, signer objects, or other signing material. `verified` requires fetched on-chain state and a completed comparison; mismatches remain explicit and must not be hidden by a successful transaction confirmation.
+
+The current web preflight checks the fixed Solana Devnet RPC identity and a connected wallet's public Devnet account plus legacy-transaction capability. This is access readiness only: it creates no `DeploymentRecord`, validates no assembled SDK configuration or balance, and does not build, sign, or send a transaction. The `demo-v1` adapter can independently build and validate an offline candidate and can assemble an unsigned config-and-pool transaction after runtime wallet and metadata resolution. The budget, preview, simulation, and approval evidence have not yet been wired to the web flow or to a broadcaster. A passing preflight must not advance deployment or candidate verification status.
+
+## 20.5 Shared validation, solver, and verification statuses
+
+```ts
+type ValidationStatus = "valid" | "invalid";
+
+type SolverStatus = "satisfied" | "partial" | "unsatisfied";
+
+type VerificationStatus =
+  | "unverified"
+  | "sdk-validated"
+  | "sdk-parity-verified"
+  | "on-chain-verified";
+```
+
+Validation status describes whether an input conforms to its domain schema and constraints. A valid intent result includes its normalized intent; a valid curve result includes the checked curve. An invalid result includes validation issues and must not contain a normalized intent or accepted curve.
+
+Solver status describes economic constraint satisfaction, not validation or protocol evidence. `satisfied` means all requested constraints are met within their defined tolerances. `partial` means a candidate exists but one or more requested constraints remain unmet and must be identified. `unsatisfied` means no candidate can meet the solver's feasibility requirements; it has no deployable candidate.
+
+Verification status records evidence actually completed for a candidate: `unverified` means no SDK validation or stronger check has completed; `sdk-validated` means the pinned SDK accepted the candidate; `sdk-parity-verified` means the applicable protocol outputs were compared against the pinned SDK under the parity policy in §3.5; and `on-chain-verified` means fetched chain state was compared against the candidate. Do not infer a stronger status from a weaker check. These statuses are distinct from the deployment lifecycle and verification statuses in §20.4 and do not by themselves authorize deployment.
+
+Simulation and attack run statuses, audit severity, and deployment lifecycle statuses remain domain-specific because they describe different outcome axes; they must not be substituted for validation, solver, or verification status.
+
+## 20.6 Configuration validation
+
+`validateFeeConfiguration(input: unknown)` and `validateMigrationConfiguration(input: unknown)` accept normalized domain-shaped objects and return a `ConfigurationValidationResult<T>`. Monetary percentages and protocol parameters at this boundary are `bigint`; the external `MarketIntent` continues to accept decimal strings and is validated/normalized under §7.1. Unknown fields and invalid values produce path-specific issues; invalid configurations must not be compiled.
+
+```ts
+type ConfigurationValidationIssue = {
+  path: string;
+  code: string;
+  message: string;
+};
+
+type ConfigurationValidationResult<Value> =
+  | { status: "valid"; value: Value }
+  | { status: "invalid"; issues: readonly ConfigurationValidationIssue[] };
+```
+
+The pure domain validators enforce supported units and domain-level ranges before compilation: base fees are 25–9,900 bps; scheduled periods fit `u16`, period frequency fits `u64`, and the accepted schedule is strictly declining; dynamic-fee bin step is 1 bp, filter period is shorter than decay period, reduction factor is at most 10,000 bps, and volatility/control values fit `u24`. SDK percentage inputs must be representable as whole percentages (basis points divisible by 100): creator trading-fee share and DAMM v2 liquidity buckets use 0–100%; migration fee uses 0–99%, with creator share 0–100% and zero when migration fee is zero. Migrated-pool fees are 10–1,000 bps; compounding mode requires a 1–10,000 bps compounding fee and other modes reject that field. Allocation intent must sum to 10,000 bps with at least 1,000 bps assigned to locked intent; six DAMM v2 liquidity buckets must sum to 10,000 bps. A supplied lock duration must be positive and no greater than two years.
+
+These checks do not replace the pinned SDK's `validateConfigParameters` or establish protocol parity. In particular, the domain allocation shape does not include vesting schedules, so it cannot prove that at least 10% remains locked one day after migration. `validateCompleteSdkConfigCandidate` in `src/meteora/complete-config-validation.ts` requires the complete fixed-supply amounts, a non-default leftover receiver, and both SDK vesting schedules; it checks the one day locked-liquidity basis points with `calculateLockedLiquidityBpsAtTime` and `validateMinimumLockedLiquidity`, then invokes the pinned SDK's `validateConfigParameters`. SDK exceptions are replaced with a static safe issue. Its `sdk-validated` result is candidate evidence only and does not imply signing, submission, or on-chain verification.
 
 `buildMeteoraConfigTransaction` in `src/meteora/deployment-config-builder.ts` is Devnet-only and runs `validateCompleteSdkConfigCandidate` immediately before calling `DynamicBondingCurveClient.create(connection).partner.createConfig` from pinned SDK 1.5.13. It accepts only public account addresses, requires on-curve config and payer signer addresses, and returns the unsigned `create_config` transaction with the payer set as fee payer and the config signer address declared for later budget/preview checks. It generates and retains no keypair, signs nothing, and makes no RPC request. A caller must retain any config signer keypair outside this result. Exact config account allocation/rent is not inferred here; the budget caller must supply program-verified account sizing before treating its estimate as sufficient.
 
@@ -1443,7 +1735,7 @@ Convert metrics into findings and suggested remediations.
 
 ## Phase 6 — UI
 
-Current root web implementation connects reviewed structured intent, curve-draft compilation and visualization, deterministic scripts, five explicit attack models, evidence-backed audits with a versioned heuristic policy, paired numeric-objective hardening, exact advanced curve units, and versioned audit report export. A read-only Devnet and wallet preflight is available after candidate selection. Phase 8 now has the schema-versioned seeded `demo-v1` profile, offline candidate assembly/validation/serialization, runtime wallet and metadata resolution, unsigned pinned-SDK config/pool transaction assembly, budget and preview/simulation gates, digest-bound approval, and a Wallet Standard sender adapter. The sender adapter is not connected to the studio. The local metadata assets remain unpublished, so the candidate URI is unresolved and live send readiness must block. No wallet prompt, signature, or transaction has occurred. Deployment record persistence, on-chain state fetch, parity verification, and automatic prose interpretation remain open. The web audit lacks standalone stochastic-cohort and paired late-capital-stress inputs; absent categories remain unavailable. Hardening requires a retained script, reviewed stochastic population/seed, and retained attack configurations without warm-ups. Editing source inputs invalidates dependent results.
+Current root web implementation connects reviewed structured intent, curve-draft compilation and visualization, deterministic scripts, five explicit attack models, evidence-backed audits with a versioned heuristic policy, paired numeric-objective hardening, exact advanced curve units, and versioned audit report export. A read-only Devnet and wallet preflight is available after candidate selection. Phase 8 now has the schema-versioned seeded `demo-v1` profile, offline candidate assembly/validation/serialization, runtime wallet and metadata resolution, unsigned pinned-SDK config/pool transaction assembly, budget and preview/simulation gates, digest-bound approval, and a Wallet Standard sender adapter. The sender adapter is not connected to the studio. The metadata assets are hosted and fetched through GitHub Pages; the candidate URI remains unresolved until explicit runtime resolution. No wallet prompt, signature, or transaction has occurred. Deployment record persistence, on-chain state fetch, parity verification, and automatic prose interpretation remain open. The web audit lacks standalone stochastic-cohort and paired late-capital-stress inputs; absent categories remain unavailable. Hardening requires a retained script, reviewed stochastic population/seed, and retained attack configurations without warm-ups. Editing source inputs invalidates dependent results.
 
 `buildDemoV1MarketTransaction` takes the offline candidate plus a connected deployer public key, config/base-mint signer public keys, and a Devnet connection. It refuses unresolved authority or metadata before RPC use, binds the deployer to payer, pool creator, fee claimer, and leftover receiver, and delegates to `buildMeteoraMarketTransaction`. That low-level Devnet adapter revalidates the fully assembled candidate immediately before the pinned SDK 1.5.13 combined config-and-pool builder, confirms the fixed Devnet genesis and a classic SPL quote mint with the fixture's six decimals, requires token name/symbol/metadata URI, and returns an unsigned transaction plus derived public addresses, signer addresses, rent targets, and any configured pool-creation SOL debit. It rejects transactions that exceed Solana's legacy wire-packet limit. The current-source account lengths are marked unverified against the deployed Devnet programs; tests mock identity and quote-mint reads, and nothing is signed or submitted. The compile CLI still emits curve drafts only; the separate deployment API uses the seeded profile and does not yet connect to the studio.
 
