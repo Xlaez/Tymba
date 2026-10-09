@@ -5,7 +5,7 @@ import {
 import { PublicKey } from "@solana/web3.js";
 
 export const DEVNET_RPC_URL = "https://api.devnet.solana.com";
-export const DEVNET_GENESIS_HASH = "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC";
+export const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 export const SOLANA_DEVNET_CHAIN = "solana:devnet";
 
 type UnknownRecord = Record<string, unknown>;

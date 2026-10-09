@@ -202,6 +202,42 @@ function sdkBn(value: bigint | string): ReturnType<typeof fromDecimalToBN> {
   return fromDecimalToBN(new Decimal(value.toString()));
 }
 
+function restoreSerializedSdkIntegers(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(restoreSerializedSdkIntegers);
+  if (typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value)) return sdkBn(value);
+  if (!isRecord(value)) return value;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, restoreSerializedSdkIntegers(child)]),
+  );
+}
+
+function restoreSerializedCurveIntegers(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const asBigint = (candidate: unknown) =>
+    typeof candidate === "string" && /^(0|[1-9][0-9]*)$/.test(candidate)
+      ? BigInt(candidate)
+      : candidate;
+  return {
+    ...value,
+    startSqrtPriceQ64x64: asBigint(value.startSqrtPriceQ64x64),
+    migrationQuoteThresholdAtomic: asBigint(value.migrationQuoteThresholdAtomic),
+    segments: Array.isArray(value.segments)
+      ? value.segments.map((segment) =>
+          isRecord(segment)
+            ? {
+                ...segment,
+                lowerSqrtPriceQ64x64: asBigint(segment.lowerSqrtPriceQ64x64),
+                upperSqrtPriceQ64x64: asBigint(segment.upperSqrtPriceQ64x64),
+                liquidity: asBigint(segment.liquidity),
+              }
+            : segment,
+        )
+      : value.segments,
+  };
+}
+
 function safeSdkInteger(value: unknown): bigint | undefined {
   if (typeof value !== "object" || value === null || typeof value.toString !== "function")
     return undefined;
@@ -1229,7 +1265,22 @@ function validateDeploymentCandidate(input: unknown): DeploymentCandidateResult 
       ],
     };
   }
-  const migration = validateMigrationConfiguration(input.migration);
+  let migrationValue: unknown;
+  try {
+    migrationValue = convertConfigBigintStrings(input.migration, "$.migration");
+  } catch {
+    return {
+      status: "invalid",
+      issues: [
+        issue(
+          "$.migration",
+          "invalid_migration_integer",
+          "Migration fields must use valid decimal integer values.",
+        ),
+      ],
+    };
+  }
+  const migration = validateMigrationConfiguration(migrationValue);
   if (migration.status === "invalid") return { status: "invalid", issues: migration.issues };
   if (
     !isDemoV1Migration(migration.value) ||
@@ -1252,12 +1303,15 @@ function validateDeploymentCandidate(input: unknown): DeploymentCandidateResult 
       ],
     };
   }
-  const marketCandidate = input.market.candidate;
+  const marketCandidate: UnknownRecord = {
+    ...input.market.candidate,
+    curve: restoreSerializedCurveIntegers(input.market.candidate.curve),
+  };
   const curve = marketCandidate.curve as unknown as DbcCurve;
   const curveValidation = validateDbcCurveShape(curve);
   if (curveValidation.status === "invalid")
     return { status: "invalid", issues: curveValidation.issues };
-  const sdkConfig = input.sdkConfig as unknown as ConfigParameters;
+  const sdkConfig = restoreSerializedSdkIntegers(input.sdkConfig) as ConfigParameters;
   try {
     const deployment = input.market.deploymentConfiguration as UnknownRecord;
     const baseToken = deployment.baseToken as UnknownRecord;

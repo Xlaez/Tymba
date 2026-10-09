@@ -29,6 +29,7 @@
     "@solana/wallet-standard-features": "1.5.0",
     "@solana/web3.js": "1.99.0",
     "@wallet-standard/app": "1.1.1",
+    "buffer": "6.0.3",
     "decimal.js": "10.6.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"

@@ -3,6 +3,11 @@ import { serializeCliJson } from "../cli/output.js";
 import { attackWebDocument } from "./attack.js";
 import { auditWebDocument } from "./audit.js";
 import { compileWebDocument } from "./compile.js";
+import {
+  assembleWebDeploymentTransaction,
+  checkWebDeploymentReadiness,
+  prepareWebDeploymentCandidate,
+} from "./deployment.js";
 import { hardenWebDocument } from "./harden.js";
 import { reviewDocument } from "./review.js";
 import { simulateWebDocument } from "./simulate.js";
@@ -29,6 +34,9 @@ export async function handleWebApi(
         "/api/attack",
         "/api/audit",
         "/api/harden",
+        "/api/deployment/candidate",
+        "/api/deployment/transaction",
+        "/api/deployment/readiness",
       ].includes(request.url ?? "")
     )
       throw new HttpError(404, "Unknown workflow endpoint.");
@@ -37,17 +45,23 @@ export async function handleWebApi(
     const body = await readJsonBody(request);
     response.end(
       serializeCliJson(
-        request.url === "/api/review"
-          ? reviewDocument(body)
-          : request.url === "/api/compile"
-            ? compileWebDocument(body)
-            : request.url === "/api/harden"
-              ? hardenWebDocument(body)
-              : request.url === "/api/audit"
-                ? auditWebDocument(body)
-                : request.url === "/api/attack"
-                  ? attackWebDocument(body)
-                  : simulateWebDocument(body),
+        request.url === "/api/deployment/candidate"
+          ? prepareWebDeploymentCandidate(body)
+          : request.url === "/api/deployment/transaction"
+            ? await assembleWebDeploymentTransaction(body)
+            : request.url === "/api/deployment/readiness"
+              ? checkWebDeploymentReadiness(body)
+              : request.url === "/api/review"
+                ? reviewDocument(body)
+                : request.url === "/api/compile"
+                  ? compileWebDocument(body)
+                  : request.url === "/api/harden"
+                    ? hardenWebDocument(body)
+                    : request.url === "/api/audit"
+                      ? auditWebDocument(body)
+                      : request.url === "/api/attack"
+                        ? attackWebDocument(body)
+                        : simulateWebDocument(body),
       ),
     );
   } catch (error) {

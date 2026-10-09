@@ -64,7 +64,7 @@ type PreparedMarketTransaction = Readonly<{
   additionalSignerAddresses: readonly string[];
   rentAccounts: readonly MeteoraMarketRentAccount[];
   additionalLamportDebits: readonly bigint[];
-  rentLayoutEvidence: "current-source-unverified-on-devnet";
+  rentLayoutEvidence: "current-source-verified-devnet-runtime-unconfirmed";
 }>;
 
 type ValidatedMarketBuildInput = Readonly<{
@@ -416,7 +416,7 @@ export async function buildMeteoraMarketTransaction(
         additionalSignerAddresses: [validated.config.toBase58(), validated.baseMint.toBase58()],
         rentAccounts,
         additionalLamportDebits: [validated.poolCreationFeeLamports],
-        rentLayoutEvidence: "current-source-unverified-on-devnet",
+        rentLayoutEvidence: "current-source-verified-devnet-runtime-unconfirmed",
       };
     },
   });

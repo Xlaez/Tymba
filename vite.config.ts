@@ -1,6 +1,9 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  resolve: {
+    alias: [{ find: /^buffer$/, replacement: "buffer/" }],
+  },
   plugins: [
     {
       name: "tymba-local-workflow",

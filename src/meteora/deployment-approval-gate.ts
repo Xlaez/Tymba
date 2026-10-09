@@ -69,7 +69,7 @@ function snapshotTransaction(
             isSigner: key.isSigner,
             isWritable: key.isWritable,
           })),
-          data: Buffer.from(instruction.data),
+          data: new Uint8Array(instruction.data) as typeof instruction.data,
         }),
     ),
   );

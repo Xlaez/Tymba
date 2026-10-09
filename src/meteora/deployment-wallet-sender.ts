@@ -44,6 +44,10 @@ export type WalletSubmissionResult =
       reason: "wallet-rejected-or-failed" | "wallet-returned-invalid-signature";
     }>
   | Readonly<{
+      status: "preflight-rejected";
+      reason: "blockhash-not-found";
+    }>
+  | Readonly<{
       status: "failed-before-wallet";
       reason: "runtime-signer-failed";
     }>
@@ -96,6 +100,21 @@ function walletSignature(value: unknown): string | undefined {
   )
     return undefined;
   return encodeBase58(value[0].signature);
+}
+
+function walletErrorText(value: unknown, depth = 0): string {
+  if (depth > 3) return "";
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return `${value.message} ${walletErrorText(value.cause, depth + 1)}`;
+  if (!isRecord(value)) return "";
+  return ["message", "code", "data", "cause", "err", "logs"]
+    .map((key) => walletErrorText(value[key], depth + 1))
+    .filter(Boolean)
+    .join(" ");
+}
+
+function isBlockhashPreflightFailure(value: unknown): boolean {
+  return /blockhash(?: not found|notfound)/i.test(walletErrorText(value));
 }
 
 function signerSetMatches(
@@ -217,7 +236,10 @@ export async function sendApprovedDeployment(options: {
             skipPreflight: false,
           },
         });
-      } catch {
+      } catch (error) {
+        if (isBlockhashPreflightFailure(error)) {
+          return { status: "preflight-rejected" as const, reason: "blockhash-not-found" as const };
+        }
         return { status: "outcome-unknown" as const, reason: "wallet-rejected-or-failed" as const };
       }
       const signature = walletSignature(walletResult);

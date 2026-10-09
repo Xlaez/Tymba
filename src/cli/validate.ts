@@ -183,6 +183,7 @@ export function convertConfigBigintStrings(value: unknown, path: string): unknow
     Object.entries(value).map(([key, entry]) => {
       const entryPath = `${path}.${key}`;
       if (CONFIG_BIGINT_FIELDS.has(key)) {
+        if (typeof entry === "bigint") return [key, entry];
         if (typeof entry !== "string" || !/^-?\d+$/.test(entry)) {
           throw new ConfigIntegerError(entryPath);
         }

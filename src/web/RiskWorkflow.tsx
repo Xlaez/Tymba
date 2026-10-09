@@ -60,7 +60,7 @@ export function RiskWorkflow(props: {
           </section>
         }
       >
-        <DeploymentAccess />
+        <DeploymentAccess compileRequest={props.compileRequest} candidateId={props.candidateId} />
       </Suspense>
     </>
   );

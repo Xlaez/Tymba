@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 33881)
-Total output lines: 3558
-
 # Tymba — Product & Technical Specification
 
 > **Working name:** Tymba  
@@ -891,7 +888,1627 @@ Normalize the terms as follows:
 - Distribution error: `abs(achievedBps - targetBps) / 10_000`.
 - Migration-price error: `abs(achievedPrice - targetPrice) / targetPrice`; the target must be positive.
 - Early price-impact penalty: measure a single deterministic buy against the candidate's initial state using an explicitly supplied positive quote-atomic probe and retain the deterministic simulation id. If an impact limit is supplied, use `max(achievedImpactBps - limitBps, 0) / 10_000`; otherwise use `achievedImpactBps / 10_000`. There is no implicit probe-size default.
-- Attack-profitability penalty: `max(attackerProfitQuoteAtomic, 0) / attackerCapitalQuoteAtomic`; capital must be positive. A positively weighted attack term requires an identifi…17881 tokens truncated…tion-surplus-bps"
+- Attack-profitability penalty: `max(attackerProfitQuoteAtomic, 0) / attackerCapitalQuoteAtomic`; capital must be positive. A positively weighted attack term requires an identified modeled attack result. An unrun attack is not treated as zero exposure.
+- Segment-complexity penalty: `segmentCount / maxSegments`.
+
+All arithmetic uses `Decimal` or `bigint`; only bounded segment counts use JavaScript `number`. When a target or metric is unavailable, its weight must be zero until a measurement exists. In particular, the Phase 4 objective may use attack exposure only when a deterministic or adversarial run supplies attacker PnL and capital; stochastic/adversarial scenarios are otherwise implemented in Phase 5.
+
+The solver should return the best valid candidates, not only a single answer.
+
+---
+
+## 7.6 Solver strategy
+
+MVP implementation:
+
+1. Normalize user constraints.
+2. Derive obvious exact values first.
+3. Generate candidate price breakpoints.
+4. Solve segment liquidity analytically where possible.
+5. Optimize remaining free variables numerically.
+6. Reject invalid DBC configs.
+7. Run deterministic verification.
+8. Rank candidates.
+9. Run adversarial simulation against top candidates.
+10. Return top 1–3.
+
+Potential numerical approaches:
+
+- constrained nonlinear optimization,
+- differential evolution,
+- CMA-ES,
+- simulated annealing,
+- grid + local refinement,
+- gradient-based methods where differentiable.
+
+For MVP, reliability and determinism are more important than theoretical elegance.
+
+The initial remaining-variable optimizer is deterministic bounded coordinate search over arbitrary-precision decimal values. It visits variables in declaration order and tests the negative then positive direction from the same point, accepts only strict objective improvements, and halves its normalized step fraction after a pass with no improvement. Defaults are a 0.25 initial fraction, a 0.0001 minimum fraction, and 256 passes. It uses no randomness; identical bounds, initial values, objective, and options must produce identical results.
+
+For fixed Q64.64 boundaries and a per-segment atomic target, invert the linear liquidity equations analytically: quote liquidity is estimated from `targetQuoteAtomic * 2^128 / (upperSqrt - lowerSqrt)`, and base liquidity from `targetBaseAtomic * lowerSqrt * upperSqrt / (upperSqrt - lowerSqrt)`. Evaluate the floor and ceiling estimates within positive u128 liquidity bounds using the existing forward formulas (quote rounds up; distributed base rounds down). Choose the value with the smallest absolute atomic error, breaking ties toward lower liquidity, and report the achieved amount and residual. This is a segment-level analytic solve, not proof that combined market targets are jointly feasible or that the resulting curve passes protocol validation.
+
+The current curve-solver draft uses the initial linear price grid and deterministic atomic target allocations. With both quote and distribution targets, it derives pairwise quote allocations from the interval base-per-quote ratios and evaluates a bounded deterministic set of neighboring atomic splits. It solves each segment's liquidity analytically, applies local curve guardrails, evaluates the explicitly weighted objective, and returns candidates with `verificationStatus: "unverified"`. This is a curve-generation stage only: it does not synthesize fee or migration configuration, and no candidate is deployable until pinned-SDK validation and deterministic simulator verification succeed.
+
+Every locally valid solver candidate is run through the deterministic simulator before it is returned. The caller must explicitly provide validated fees, migration configuration, supply mode, simulation clock, activation point/type, and initial dynamic-fee state when dynamic fees are enabled. The verifier builds a fresh pre-launch state with the market's full base supply in the pool reserve, zero quote reserve, and zero fee/migration ledgers; finds the minimum quote input that reaches the terminal curve price under those settings; and runs that trade. It checks curve completion, final Q64.64 price, accumulated quote, base distributed, and distribution basis points against the candidate's locally computed curve values. Returned economic metrics are taken from this simulation. Simulator execution is reproducibility evidence, not SDK validation or protocol parity; `verificationStatus` remains `unverified` until stronger protocol evidence exists.
+
+The pinned Meteora DBC SDK `validateCurve` validator also runs on each generated curve. Tymba converts each segment's upper Q64.64 boundary and liquidity to SDK BN values without changing the integers, supplies the candidate start boundary, and rejects both a false validator result and thrown validation errors. The candidate records the pinned SDK version and curve-entry count. This validates the curve array only; it does not validate complete config parameters, token-supply mode, migration/vesting configuration, or DAMM allocations, and it does not promote the candidate's `verificationStatus`. Full-config acceptance remains a separate compiler gate.
+
+Each result carries a JSON-safe solver run record: normalized input, engine/algorithm/SDK versions, solver and simulation configuration, explicit objective weights, objective measurements and evidence, output metrics, issues, and warnings. Decimal and atomic values are strings. The solver is deterministic and consumes no randomness, so `randomSeed` is `null` with an explicit not-applicable policy; do not invent or imply a seed. Run records contain no generated timestamps or random identifiers; identical normalized inputs and configuration must produce identical run records.
+
+Keep economic optimization and DBC protocol math as separate modules (initially `src/economics` and `src/dbc-math` within the root package). Optimize over human price boundaries and liquidity weights, then quantize to protocol values and re-run the deterministic simulator and SDK validation. The quantized result is authoritative for output, constraints, explanations, and UI metrics.
+
+---
+
+# 8. Deterministic Simulator
+
+The deterministic simulator must reproduce DBC behavior exactly for protocol outputs under the pinned SDK/program, subject only to a narrowly documented helper-specific exception of at most one atomic unit.
+
+It should support:
+
+```text
+buy quote → base
+sell base → quote
+crossing multiple curve segments
+fees
+dynamic fees
+migration threshold
+surplus
+post-migration accounting
+```
+
+The simulator must be tested against the pinned official Meteora SDK. Protocol outputs use exact parity by default; do not use percentage tolerances for atomic amounts, fees, or Q64.64 values.
+
+---
+
+## 8.1 Core simulator API
+
+```ts
+type SimulationClock = {
+  slot: bigint;
+  timestampSeconds: bigint;
+};
+
+type DynamicFeeState = {
+  lastUpdateTimestamp: bigint;
+  sqrtPriceReferenceQ64x64: bigint;
+  volatilityAccumulator: bigint;
+  volatilityReference: bigint;
+};
+
+type PoolSupplyState = {
+  mode: "dynamic" | "fixed";
+  totalBaseSupply: AssetAmount<"base">;
+  baseDistributed: AssetAmount<"base">;
+};
+
+type PoolState = {
+  curve: DbcCurve;
+  fees: FeeConfiguration;
+  migration: MigrationConfiguration;
+  supply: PoolSupplyState;
+  ledger: EconomicLedger;
+  currentSqrtPriceQ64x64: bigint;
+  clock: SimulationClock;
+  activationPoint: bigint;
+  activationType: FeeClock;
+  migrationProgress: MigrationProgress;
+  hasSwapped: boolean;
+  dynamicFeeState?: DynamicFeeState;
+};
+
+type TradeFillStatus = "filled" | "partial";
+
+type TradeFeeAmounts = {
+  tradingFee: AssetAmount;
+  protocolFee: AssetAmount;
+  referralFee: AssetAmount;
+};
+
+type MigrationSettlement = {
+  protocolLiquidityFee: AssetAmountPair;
+  dammLiquidity: AssetAmountPair;
+  leftoverBase: AssetAmount<"base">;
+  liquidityUnits: bigint;
+};
+
+type MigrationExecutionResult = {
+  state: PoolState;
+  liquidityAllocation: {
+    distributableLiquidity: bigint;
+    creator: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+    partner: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+  };
+  verificationStatus: VerificationStatus;
+};
+
+type PoolEconomicSnapshot = {
+  poolReserves: AssetAmountPair;
+  baseDistributed: AssetAmount<"base">;
+  feesGenerated: AssetAmountPair;
+  spotPrice: Decimal;
+  migrationProgressBps: bigint;
+  migrationProgress: MigrationProgress;
+};
+
+type TradeMetrics = {
+  spotPriceBefore: Decimal;
+  spotPriceAfter: Decimal;
+  priceImpactBps: bigint;
+  migrationProgressBeforeBps: bigint;
+  migrationProgressAfterBps: bigint;
+  poolReservesAfter: AssetAmountPair;
+};
+
+type DeterministicTradeInput = {
+  direction: "buy" | "sell";
+  inputAtomic: bigint;
+  clock?: SimulationClock;
+};
+
+type DeterministicSimulationInput = {
+  id: string;
+  initialState: PoolState;
+  trades: readonly DeterministicTradeInput[];
+  migrationSettlement?: MigrationSettlement;
+};
+
+type TradeResultBase<
+  InputAsset extends AssetSide = AssetSide,
+  OutputAsset extends AssetSide = AssetSide,
+> = {
+  status: TradeFillStatus;
+  requestedInput: AssetAmount<InputAsset>;
+  consumedInput: AssetAmount<InputAsset>;
+  unfilledInput: AssetAmount<InputAsset>;
+  output: AssetAmount<OutputAsset>;
+  nextSqrtPriceQ64x64: bigint;
+  fees: TradeFeeAmounts;
+  metrics: TradeMetrics;
+};
+
+type BuyResult = TradeResultBase<"quote", "base"> & {
+  direction: "buy";
+};
+
+type SellResult = TradeResultBase<"base", "quote"> & {
+  direction: "sell";
+};
+
+type TradeResult = BuyResult | SellResult;
+
+interface DbcSimulator {
+  quoteBuy(inputQuote: bigint, state: PoolState): BuyResult;
+  quoteSell(inputBase: bigint, state: PoolState): SellResult;
+
+  executeBuy(inputQuote: bigint, state: PoolState): PoolState;
+  executeSell(inputBase: bigint, state: PoolState): PoolState;
+  executeMigration(state: PoolState, settlement: MigrationSettlement): MigrationExecutionResult;
+
+  getSpotPrice(state: PoolState): Decimal;
+  getMigrationProgress(state: PoolState): Decimal;
+  getPoolEconomicSnapshot(state: PoolState): PoolEconomicSnapshot;
+  runDeterministicSimulation(
+    input: DeterministicSimulationInput,
+  ): DeterministicSimulationResult;
+}
+```
+
+`MigrationSettlement` supplies the protocol-liquidity fee, DAMM v2 base/quote deposits, fixed-supply leftover base, and migration liquidity units for the transition. The simulator checks exact asset-scale and reserve conservation, computes the configured migration fee from the documented threshold formula, and allocates the supplied liquidity units across the six configured buckets. Until protocol fee and DAMM deposit rounding have exact SDK/program parity, `executeMigration` returns `verificationStatus: "unverified"`; caller-supplied settlement values are modeled inputs, not protocol guarantees.
+
+Each trade quote includes decimal spot prices before/after execution, absolute price impact in basis points, migration progress before/after, and projected post-trade reserves. `getMigrationProgress` returns a ratio from 0 to 1. A deterministic run requires an explicit stable id, initial state, ordered trade inputs, and optional per-trade clocks; it uses no wall-clock values or random seed. Run `quoteAccumulated` is the initial quote reserve plus net quote-reserve changes across the scripted trades, retained as a run metric even if migration later moves that reserve into DAMM v2.
+
+`PoolState` is a pure in-memory DBC simulation snapshot. It contains no RPC, wallet, signer, or transaction state. Reserves and accounting values use `CurrencyAmount`; current and volatility sqrt prices remain encoded Q64.64 `bigint` values. `PoolSupplyState` records the resolved supply mode and base supply/distribution metrics; the exact accounting boundary for base distribution must be established by parity tests. The simulation clock carries both slot and Unix timestamp, while `activationPoint` and `activationType` preserve the selected config's scheduler clock. `migrationProgress` is a lifecycle state, separate from the continuous progress ratio returned by the simulator.
+
+For trade results, `requestedInput` is the offered amount, `consumedInput` is the amount debited, `unfilledInput` is the unconsumed remainder, and `output` is what the trader receives after applicable fees. Each `AssetAmount` carries its base/quote identity and decimal scale. The fee fields mirror SDK-reported categories; do not assume they are disjoint or sum them without verifying the pinned implementation. `quoteBuy` and `quoteSell` are previews and do not mutate the supplied state; execution returns a new state only after the trade transition is parity-tested.
+
+---
+
+## 8.2 Deterministic outputs
+
+For any proposed curve:
+
+```text
+Quote required per segment
+Base distributed per segment
+Average entry price per segment
+Spot price trajectory
+Migration quote
+Migration price
+Migration FDV
+Effective fees
+Post-migration allocation
+```
+
+---
+
+# 9. Stochastic Simulation Engine
+
+The deterministic engine answers:
+
+> What does this configuration mathematically do?
+
+The stochastic engine answers:
+
+> What might happen when humans and bots interact with it?
+
+---
+
+## 9.1 Agent archetypes
+
+MVP archetypes:
+
+### Retail Buyer
+
+```text
+Buy size:
+$50–$500
+
+Entry:
+distributed over time
+
+Exit:
+probabilistic
+```
+
+### Whale
+
+```text
+Buy size:
+$5,000–$50,000
+
+Behavior:
+large one-shot entries
+```
+
+### Sniper
+
+```text
+Entry:
+first possible block / earliest simulation tick
+
+Goal:
+maximize extraction from later demand
+```
+
+### Momentum Trader
+
+```text
+Buys after positive price momentum
+```
+
+### Profit Taker
+
+```text
+Sells after target gain
+```
+
+### Panic Seller
+
+```text
+Sells after drawdown threshold
+```
+
+### Random Trader
+
+```text
+Stochastic baseline participant
+```
+
+The MVP archetypes are transparent rule-based models, not behavior learned from historical users. Each configured agent has an explicit identifier, starting quote/base wallet balances, and base-token cost basis. Buy sizes and wallet amounts are atomic `bigint` values; probabilities, allocation shares, and gain/drawdown thresholds are basis-point `bigint` values; tick counts and time intervals are also explicit integers. Every archetype parameter that changes economic behavior is required rather than silently defaulted.
+
+- Retail buyers draw a configured per-tick buy probability, sample a quote size from an explicit inclusive range, and independently draw an exit probability while holding base tokens.
+- Whales make one configured quote-sized purchase at an explicit tick.
+- Snipers buy on the first tick, then exit at most once after both the configured minimum hold and cumulative retail-buyer base purchases reach their explicit thresholds. They exit the configured position share; neither demand nor a profitable exit is assumed.
+- Momentum traders compare the current observed spot price with the preceding tick, buy when the configured increase threshold is met, and stop at an explicit purchase count.
+- Profit takers enter at an explicit tick and quote size, then sell a configured position share after the configured gain threshold.
+- Panic sellers enter at an explicit tick and quote size, then sell a configured position share after the configured drawdown from their observed peak.
+- Random traders select buy, sell, or wait from explicit probabilities and sample buys from an explicit quote-size range; buy and sell probabilities must sum to no more than 100%.
+
+The simulator maintains per-agent wallet balances and average quote cost basis from actual consumed inputs and delivered outputs. An agent cannot spend beyond its quote balance or sell more base than it owns. Starting agent base balances cannot exceed the pool's already-distributed base supply. These simplified strategies and their configured assumptions must accompany every report; they are not claims about actual participant behavior.
+
+Scenario configuration explicitly supplies the initial pool candidate, random seed, tick count, slot and timestamp increments, execution-order policy, per-archetype counts, and one complete behavior/funding template for every nonzero count. The template is copied to each generated agent with a deterministic unique ID; callers needing heterogeneous agents can provide their individually configured agents directly. The synchronous in-memory MVP population is capped at 10,000 agents as a resource guard. No tick duration, trade size, agent count, or execution policy is silently selected.
+
+---
+
+## 9.2 Simulation loop
+
+Pseudo-flow:
+
+```ts
+for each simulation:
+  initializePool()
+
+  for each tick:
+    advanceSlotAndTimestamp()
+    observation = snapshot(state)
+    actions = agents.decide(observation)
+    orderActions(explicitlyConfiguredOrSeededRandomOrder)
+    executeSequentially(actions)
+    record(observation, actions, executions, metrics)
+
+  summarize()
+```
+
+All agents observe the same pre-execution pool snapshot for a tick. Observations include cumulative base purchased by each archetype, and portfolios include successful buy/sell counts. Their actions are collected before any trade executes. The execution-order policy is an explicit simulation input: preserve configured agent order or shuffle with the run's recorded seed. Trades then execute sequentially and every observation, decision, execution, rejection, and agent failure is retained in the run trace. Both slot and timestamp advance by explicit positive increments; no wall-clock time or hidden ordering default is used. A run with an agent implementation failure is marked partial, while an expected rejected trade remains recorded without hiding the rest of the modeled run.
+
+---
+
+## 9.3 Monte Carlo outputs
+
+Example:
+
+```text
+10,000 simulations
+
+Graduation frequency:
+82.4%
+
+Median quote accumulated:
+$100,000
+
+Median time / ticks to migration:
+3h 14m equivalent
+
+Median top-10 holder concentration:
+34%
+
+P95 early-buyer price advantage:
+12% (measured in 1,000 completed runs)
+
+Median maximum drawdown:
+27%
+
+Median creator fees:
+$1,842
+
+Median sniper extraction:
+$7,290
+```
+
+These outputs must be labeled as simulations, not predictions or guarantees.
+
+The result contract in §20.1 is authoritative. Every run records engine and SDK versions; stochastic runs also record the random seed, requested/completed iteration counts, and archetype counts. Report distributions as statistics over completed runs and distinguish partial or failed runs from complete results. Do not interpret a percentile as a guarantee.
+
+The Monte Carlo runner derives one unsigned 64-bit iteration seed per run from the explicitly supplied master seed using the versioned `splitmix64-v1` generator. It retains each iteration seed, status, completed tick count, and failure detail. Summary statistics exclude partial and failed iterations; if none complete, return a failed result without fabricated zero-valued statistics. Graduation frequency is calculated over completed iterations. Time-to-migration is conditional on completed iterations that reached the migration threshold. Quote accumulation is the signed change in the pool's quote reserve; holder concentration is computed among tracked agent balances, not inferred across unmodeled wallets. Fee summaries use their explicit base/quote components.
+
+Graduation means that the modeled DBC curve reached its configured quote threshold; it does not imply DAMM v2 settlement or SDK/on-chain migration verification. Maximum drawdown is the largest observed peak-to-later-price decline over executed trades, maximum price impact is the largest per-trade impact, and fee distributions come from explicit ledger deltas. Top-holder and top-ten concentration use the total base balances held by configured agents for that completed run; they do not claim concentration across wallets absent from the scenario.
+
+Early-participant price advantage is measured per completed iteration from event-order buy fills. It compares the exact first 10% of executed quote buy input with the nearest-rank median of per-buyer average entry prices; if the 10% boundary falls inside a trade, the simulator re-quotes that exact partial input against the pre-trade pool state. The stored p05/median/p95 values are paired records sorted by advantage, and the sample-size field counts completed iterations with enough quote and buyer data. The reported advantage is non-negative; accompanying prices preserve the actual comparison when early buyers did not pay less.
+
+Percentiles use the nearest-rank rule with no interpolation: rank = `ceil(sampleSize * percentileBps / 10_000)`. The p50 is therefore the lower middle observation for an even-sized sample. Fee-pair quantiles retain the joint observation and use base-fee atomic amount, then quote-fee atomic amount, as the deterministic lexicographic sort key. Uncertainty labels are descriptive model diagnostics, not statistical confidence intervals: fewer than 30 completed runs is `insufficient-data`; otherwise any partial/failed runs or a p95–p05 spread of at least 50% of the largest absolute tail/median magnitude yields `high`; a spread from 20% to below 50% yields `moderate`; otherwise the label is `low`. The spread calculation uses a denominator of at least one atomic unit/basis point. Reasons, sample size, completion rate, and maximum relative spread accompany the label.
+
+---
+
+# 10. Adversarial Engine
+
+The adversarial engine is one of the central demo features.
+
+UI label:
+
+# ATTACK MY MARKET
+
+The user selects attacks or runs all.
+
+---
+
+## 10.1 MVP attack strategies
+
+### Attack 1 — Opening Sniper
+
+```text
+Large buy immediately after launch
+Wait for modeled retail demand
+Exit partially or completely
+```
+
+Metrics:
+
+```text
+sniper profit
+retail price disadvantage
+drawdown after exit
+fees paid
+```
+
+The attacker executes first in configured order on tick zero. It makes one configured purchase, then waits until both the explicit hold duration has elapsed and cumulative retail-buyer base purchases meet the configured minimum. It exits the configured share at most once. Retail price disadvantage compares retail buyers' quote-weighted average execution price after entry with the post-entry spot price. Attacker PnL includes realized quote balance and remaining base marked at the final spot price, less its initial quote capital. These are modeled outcomes under the supplied distribution, not claims about actual users or guaranteed profits. A run requires at least one retail buyer, a bonding pool, no other sniper agents, and stays within a one-million agent-tick action budget.
+
+---
+
+### Attack 2 — Whale Entry
+
+```text
+Single participant buys X% of migration quote
+```
+
+Metrics:
+
+```text
+price displacement
+base acquired
+average execution price
+post-buy concentration
+```
+
+The attacker makes one quote buy sized as `floor(migrationQuoteThresholdAtomic * migrationQuoteShareBps / 10000)` at an explicit tick, and has first configured execution priority on that tick. Price displacement compares the pool spot immediately before and after the fill. Post-buy concentration is the attacker's acquired base divided by the base held by all tracked agents immediately after the fill; unmodeled wallets are excluded. A trade that does not execute or is interrupted by an earlier modeled migration is retained as a partial iteration, not as zero impact. The run requires a bonding pool, no other whale archetypes, sufficient quote funding, and stays within a one-million agent-tick action budget.
+
+---
+
+### Attack 3 — Pump and Dump
+
+```text
+large buy
+induce momentum traders
+sell into secondary demand
+```
+
+Metrics:
+
+```text
+attacker PnL
+peak-to-trough drawdown
+late-buyer loss
+quote required for market recovery
+```
+
+The attacker buys its explicit quote amount at the configured tick, then waits for both the configured hold and cumulative momentum-trader base purchases to reach the required threshold before exiting its configured share once. Supporting agents execute before the attacker in configured order, so qualifying momentum purchases on the exit tick are applied before the dump. Late-buyer loss is the non-negative mark-to-market loss for the momentum cohort that bought after attacker entry and before exit, measured at the lowest subsequent observed spot. Recovery quote is the smallest simulated quote input that restores the final bonding-curve spot to the observed pre-recovery peak; it is zero if the market has already recovered. If the pool migrated or that peak is unreachable on the remaining curve, the iteration is partial rather than assigning a zero recovery cost. Attacker PnL includes its remaining base marked at final spot and its quote balance net of initial quote capital.
+
+---
+
+### Attack 4 — Sell Cascade
+
+```text
+several profit takers / panic sellers exit consecutively
+```
+
+Metrics:
+
+```text
+drawdown
+quote outflow
+price recovery requirement
+migration delay
+```
+
+The attack distribution contains at least two explicit profit-taker/panic-seller agents, kept ahead of background agents in configured execution order; the background distribution cannot contain these cascade archetypes. Each attack iteration is paired with a no-cascade baseline using the same initial candidate, clock, background configuration, and iteration seed. A completed measurement requires at least two distinct cascade agents to sell and both traces to reach the DBC migration threshold. Migration delay is attack graduation time minus baseline graduation time in seconds; a negative value means the attacked run reached the threshold earlier. Quote outflow sums quote received by cascade agents. Recovery quote is calculated immediately after the last cascade sell to restore the pre-cascade peak, not after later background recovery. The recovery calculation follows the local DBC curve and does not assert post-migration market liquidity.
+
+---
+
+### Attack 5 — Fee-Schedule Exploit
+
+Search for trade timing around fee-decay transitions.
+
+Metrics:
+
+```text
+best entry timestamp
+fee saved
+PnL improvement
+```
+
+The MVP performs a deterministic round-trip sweep at the current eligible schedule point and every remaining fee-period boundary through the ending-fee period. Each candidate uses the same initial pool snapshot, quote buy size, and immediate full-base sell. The best entry clock maximizes quote PnL; ties keep the earliest candidate. Fee savings and PnL improvement compare the best candidate with the earliest completed candidate. Candidate failures remain in the result and are excluded from selection. This timing sweep consumes no randomness and therefore has no random seed; its candidate clocks and outcomes are the reproducibility record.
+
+Attack result contracts and their scenario-specific metric units are defined in §20.2. Seeded attack runs preserve their seed, iteration counts, and engine/SDK versions so the outcome can be reproduced. The deterministic fee-schedule sweep instead records candidate clocks and outcomes without a seed. A failed run records a failure and must not be presented as a completed attack result.
+
+---
+
+## 10.2 Future attacks
+
+- Sybil-wallet distribution
+- Sandwich-like modeled pressure
+- Strategic migration overshoot
+- Repeated micro-buy manipulation
+- Liquidity cliff exploitation
+- Creator / insider inventory simulations
+- Adversarial transfer-hook interactions
+
+---
+
+# 11. Economic Audit Engine
+
+The audit engine converts simulation data into understandable findings.
+
+It should behave like a static-analysis / risk-analysis tool for token-launch economics.
+
+---
+
+## 11.1 Audit categories
+
+### Price Stability
+
+```text
+Early price sensitivity
+Mid-curve depth
+Late-stage sensitivity
+```
+
+### Concentration
+
+```text
+top holder concentration
+top-10 concentration
+capital concentration
+```
+
+The MVP's stochastic top-holder and top-ten metrics use the p95 share of base balances held by configured agents only. The whale-entry attack reports the attacker's p95 share of tracked agent base immediately after its configured buy. These are scenario-bounded modeled measurements; do not infer all-wallet or Sybil-resistant concentration from them. If the run has no tracked holder metric, report the category as unavailable rather than inventing zero concentration.
+
+### Early Advantage
+
+```text
+first 10% quote average price
+vs
+median buyer average price
+```
+
+For each completed stochastic iteration, measure buyers' average quote spent per base acquired. The early tranche is the first 10% of total executed buy quote input, in retained event order; if its boundary falls inside a buy, re-quote that exact partial input against the pre-trade pool state. The median is the nearest-rank p50 of per-buyer average entry prices (lower middle for an even buyer count). Report the first-tranche price, median buyer price, and non-negative discount in bps; if there is insufficient quote/buyer data, mark the metric unavailable.
+
+### Sniper Exposure
+
+```text
+modeled attacker profitability
+```
+
+Normalize the p95 signed quote PnL from an opening-sniper run by its explicitly supplied quote capital-at-risk amount. Do not infer capital from the attacker's PnL or unrelated run fields. Preserve both the signed PnL and denominator as evidence; negative PnL maps to zero positive-return basis points for severity while the signed loss remains visible.
+
+### Exit Liquidity Sensitivity
+
+```text
+price decline caused by modeled sell sizes
+```
+
+The audit consumes post-exit p95 drawdown from the opening-sniper, pump-and-dump, and sell-cascade scenarios. Where an attack reports recovery quote or quote outflow, retain those asset-tagged p95 amounts as separate evidence; attack result fields are independently summarized, so the report must not imply that separate percentiles came from the same iteration.
+
+### Migration Fragility
+
+```text
+how dependent graduation is on late-stage capital
+```
+
+Measure this with a paired stochastic baseline and a caller-described late-stage quote-capital stress using the same seed, versions, iteration count, and agent counts. Report DBC-threshold failure frequency as `10,000 bps - graduationFrequencyBps` for the stressed run, retain baseline/stress graduation frequency and the declared reduction, and do not claim the caller's stress description proves causal isolation. A missing stress pair is unavailable, not zero fragility.
+
+### Fee Shock
+
+```text
+economic discontinuities caused by fee schedule changes
+```
+
+Compare effective scheduled base-fee numerators at adjacent eligible clocks for linear or exponential schedules. Exclude the stateful dynamic-fee component from this rate-step metric, retain exact numerator and fractional-bps changes, and round the absolute step up to whole bps only when applying severity thresholds. Keep each completed candidate's observed base and quote fee totals separately asset-tagged; do not add unlike assets or imply their percentiles are paired with the rate-step metric.
+
+### Surplus Behavior
+
+```text
+expected migration overshoot
+distribution of surplus
+```
+
+Report quote-reserve overshoot relative to the configured migration threshold and retain the threshold, overshoot, and protocol/partner/creator quote allocations as separate evidence. Deterministic observations come from curve-complete runs; stochastic p05/median/p95 summaries include only completed iterations that reach the threshold and retain the overshoot and allocation values as paired samples. Record the qualifying iteration count; if none graduate, the result is unavailable rather than a fabricated zero.
+
+The current simulator caps curve fills at completion, so a zero-overshoot result may be a fill-clamp artifact and must not be treated as evidence that real transactions cannot overshoot. Recipient shares and rounding reflect simulator assumptions, not verified SDK/program parity. Keep these metrics separate from migration fees and DAMM liquidity.
+
+### Post-Migration Liquidity
+
+```text
+locked %
+vested %
+immediately liquid %
+```
+
+Use the deterministic run's six creator/partner allocation buckets and the distributable liquidity-unit total. Report raw units per bucket, aggregate unlocked/vesting/permanently locked shares in basis points, and use aggregate unlocked share as the policy metric. Percentages are floored from exact integer units; they may sum to less than 10,000 bps because of rounding. If migration allocation is absent, report unavailable rather than assuming zero.
+
+These are destination-liquidity units, not quote or base token amounts. Higher unlocked share is an exposure signal under the selected illustrative policy, not a universal judgment: it can improve flexibility and available market liquidity, while more vesting or permanent lock can constrain recipients. State any recommendation's trade-off, and do not imply lock execution or destination behavior is verified without protocol evidence.
+
+---
+
+## 11.2 Severity language
+
+Avoid fake precision such as:
+
+```text
+Security score: 93/100
+```
+
+Prefer:
+
+```text
+LOW
+MODERATE
+HIGH
+```
+
+with exact supporting metrics.
+
+An audit finding must include its category, severity, concise explanation, evidence references, typed metric values, and suggested remediations. Evidence must identify whether it came from deterministic, stochastic, adversarial, SDK-parity, or on-chain data. The canonical finding and evidence contracts are defined in §20.3. Severity is an explainable classification, not a composite score; retain the supporting measurements and their provenance.
+
+The MVP uses one centralized, editable `AuditSeverityPolicy`. Every observation is retained in its raw unit before severity is derived. Findings and the enclosing audit result persist the policy id/version; the audit result also snapshots its thresholds so a report remains reproducible if a later policy is recalibrated. Rules must not embed numeric cutoffs. Hardening objectives use underlying numeric measurements, never severity labels.
+
+The initial policy is `demo` / `demo-v1`, classified and labeled as an illustrative demo heuristic. Its thresholds are provisional examples only, not protocol guarantees, safety claims, or industry standards. Thresholds are in basis points and a value at or above the high threshold is `HIGH`; otherwise a value at or above the moderate threshold is `MODERATE`; lower values are `LOW`.
+
+Finding-to-solver hardening maps only metrics with a semantically compatible candidate measurement. The current supported mappings are the deterministic early-curve price-impact rule to `earlyPriceImpact` only when the finding retains the first trade as a quote buy and the candidate probe exactly matches its input; it uses the original numeric intent limit (or zero as the solver's explicit minimization target). Opening-sniper p95 return maps to `attackProfitability` only when retained quote PnL/capital evidence reproduces the raw metric. The candidate evaluator must use a comparable configured scenario. Other findings remain visibly unsupported until a matching solver measurement exists. Never map severity labels or policy cutoffs into solver targets. Added risk weights are explicit, reserve a fraction below one, and proportionally scale the original objective weights so their relative economic priorities remain; original intent constraints are not rewritten.
+
+Generate a hardened candidate by re-solving the unchanged normalized `MarketIntent` with the same simulator configuration and converted objective weights. Preserve the original candidate and selected finding records. Select only candidates that satisfy the original quote and distribution targets, meet the numeric maximum early-price-impact target at the same explicit quote probe when one is specified, and whose start/migration Q64.64 boundaries, supply, and deterministic simulation match the original intent/configuration. Reject candidates with a missing comparable early-impact measurement or an exceeded limit, and retain rejection reasons. The resulting curve remains `unverified` and is not deployable.
+
+Re-run both the original and hardened candidate with identical deterministic trade actions, stochastic agent/tick configuration and master seed, and selected attack configurations and seeds. Apply the same optional warm-up quote to both candidates. Retain complete run outputs and seeds; represent setup/run exceptions explicitly and mark partial or failed suites rather than treating them as zero-risk results.
+
+Produce a structured before/after comparison from the original and hardened candidates plus those paired replay outputs. The comparison artifact retains the full generation and resimulation records, including the original candidate, selected findings with evidence, and replay seeds/results. Report selected raw risk metrics and available deterministic, stochastic-p95, and attack metrics with their source references; do not collapse findings into a score or use severity labels as objective measurements. Include absolute quote-target error in quote atomic units, absolute base-distribution-target error in basis points, measured migration price and its relative target error, whether the curve-completion simulation reached migration, segment count, and base/quote fees as separate asset-tagged amounts. Preserve unavailable and partial measurements with their reasons; a failed run is never represented as zero risk. Label the comparison as modeled and retain `verificationStatus: "unverified"` until SDK/program or on-chain evidence justifies a stronger status.
+
+The seeded hardening regression uses a deliberately selected higher-exposure feasible candidate, a 15% maximum-impact limit measured with an explicit $5,000 quote probe, $5,000 retail buys, a $100 opening-sniper buy, $500 quote capital at risk, two attack iterations, and attack master seed `9921`. Under this fixture, p95 attacker PnL falls from `12,562,158` to `9,961,208` quote atomic units; the raw positive-return metric falls from 251 to 199 bps. The replay uses the same attack configuration and derived iteration seeds for both candidates, preserves the original quote/distribution and numeric price-impact constraints, and remains modeled/unverified. This is a reproducible scenario result, not a general promise about other demand or attacker profiles.
+
+| Metric | MODERATE at or above | HIGH at or above |
+| --- | ---: | ---: |
+| Early, mid-curve, late, and maximum trade price impact | 500 bps | 1,500 bps |
+| Maximum drawdown | 1,500 bps | 3,000 bps |
+| Top-holder concentration | 1,000 bps | 2,500 bps |
+| Top-ten-holder concentration | 5,000 bps | 7,500 bps |
+| Early-buyer price advantage | 1,000 bps | 2,500 bps |
+| Sniper return | 500 bps | 1,500 bps |
+| Exit recovery quote | 500 bps | 1,500 bps |
+| Migration failure frequency | 1,000 bps | 3,000 bps |
+| Fee-shock rate step | 100 bps | 500 bps |
+| Migration surplus | 100 bps | 500 bps |
+| Unlocked post-migration liquidity | 5,000 bps | 8,000 bps |
+
+For price stability, deterministic trade impact is grouped by the midpoint of its before/after migration progress: early `[0, 3,334)`, middle `[3,334, 6,667)`, and late `[6,667, 10,001)` bps. Each reported stage value is the maximum single-trade impact observed in the supplied run, so it depends on the run's configured trade sizes and is not an intrinsic curve-depth guarantee. Stochastic summaries use the retained run's p95 of per-iteration maxima. Partial runs retain observed metrics and remain marked partial; absent observations are unavailable, never fabricated zeroes.
+
+Example:
+
+```text
+HIGH — Opening Sniper Exposure
+
+A modeled $25,000 opening purchase followed by
+baseline retail demand returned a median simulated
+profit of 18.3% before fees across 5,000 runs.
+
+Primary cause:
+The first curve segment has low virtual liquidity.
+
+Suggested mitigation:
+Increase early-segment liquidity and/or retain
+higher opening fees for longer.
+```
+
+---
+
+# 12. Automatic Improvement Loop
+
+After an audit, the user can choose:
+
+```text
+Optimize against these risks
+```
+
+Flow:
+
+```text
+current config
+    ↓
+attack results
+    ↓
+risk penalties
+    ↓
+optimizer
+    ↓
+new candidate config
+    ↓
+re-simulate
+```
+
+The system should show a diff.
+
+Example:
+
+```text
+                    BEFORE      AFTER
+
+Sniper median PnL    18.3%       5.1%
+$10k price impact    31%         12%
+Quote target error   0.4%        0.7%
+Base distributed     25.1%       24.8%
+Segments             3           4
+```
+
+This can become the strongest technical moment of the demo.
+
+---
+
+# 13. AI Layer
+
+AI should be constrained to interpretation and explanation.
+
+It should not be the source of financial mathematics.
+
+---
+
+## 13.1 AI responsibilities
+
+The LLM can:
+
+- parse natural-language market intent,
+- map language to structured constraints,
+- explain generated curves,
+- explain audit findings,
+- translate DBC jargon,
+- suggest which parameter to adjust,
+- generate human-readable deployment summaries.
+
+---
+
+## 13.2 Non-AI responsibilities
+
+The LLM should never be authoritative for:
+
+- curve calculations,
+- swap calculations,
+- fee calculations,
+- migration thresholds,
+- simulation outcomes,
+- DBC validity,
+- numerical optimization.
+
+Those must be deterministic.
+
+Architecture:
+
+```text
+User intent
+    ↓
+LLM
+    ↓
+Structured MarketIntent
+    ↓
+Validator
+    ↓
+Math / Optimizer
+    ↓
+DBC candidate
+    ↓
+Simulator
+    ↓
+Audit
+    ↓
+LLM explanation
+```
+
+---
+
+# 14. Deployment Layer
+
+Tymba should ultimately produce a real Meteora-compatible deployment.
+
+---
+
+## 14.1 Deployment stages
+
+```text
+1. Validate wallet
+2. Validate network
+3. Build DBC config
+4. Preview transaction(s)
+5. Create config / pool
+6. Confirm signatures
+7. Fetch on-chain state
+8. Compare deployed values against compiled values
+9. Save deployment record
+```
+
+Every simulation and deployment record should include the Tymba engine version and exact Meteora DBC SDK version so results remain reproducible after dependency updates.
+
+The deployment record contract is defined in §20.4. Deployment is devnet-only for MVP and requires explicit user approval before signing or broadcast. Store public addresses, transaction signatures, version identifiers, timestamps, and verification results only; never store signer material or secrets. A local prepared record is not evidence of on-chain deployment, and a submitted transaction is not verified until fetched on-chain state has been compared with the compiled candidate.
+
+---
+
+## 14.2 Deployment safety
+
+Before broadcasting:
+
+```text
+✓ configuration mathematically valid
+✓ migration threshold reachable
+✓ allocations sum correctly
+✓ supply requirements valid
+✓ fee config valid
+✓ wallet balance sufficient
+✓ transaction simulation succeeds
+```
+
+Validate the exact assembled configuration synchronously immediately before invoking a transaction builder. Pass only the validator's normalized accepted value to that builder. Invalid validation results or thrown validator errors must stop construction; thrown SDK details must not be returned to logs or user-facing errors. Transaction construction is local preparation and does not sign or submit.
+
+`assessDeploymentBudget` accepts an unsigned legacy transaction and an explicit list of every account the builder plans to create, with each account's encoded data length. It requires the fixed Devnet RPC URL and genesis identity, obtains a fresh confirmed blockhash, quotes the message fee, checks the fee payer's confirmed SOL balance at or after that context slot, quotes rent exemption for each missing account, and adds all other SDK-declared lamport debits. Every required signer other than the fee payer must be declared by public key; undeclared or unnecessary signer declarations are rejected. The result records the message digest and required public signer addresses. It fails closed on an existing rent target, missing fee quote, unsafe RPC integer, or RPC error. The result is a time-bounded estimate, not a guarantee that later simulation or execution will succeed. The caller must include every rent account and every non-rent SOL debit; token-denominated costs require their own balance checks.
+
+`previewDeploymentTransaction` accepts only a sufficient budget result and confirms that the unsigned legacy transaction still compiles to the exact fee-quoted message and declared signer set. It returns public instruction/program/account roles, required signer addresses, the message digest, blockhash expiry, and quoted budget components; it never returns a keypair, signature, or raw instruction data. Instruction names are decoded from the pinned DBC IDL. `simulateDeploymentTransaction` rechecks Devnet identity and blockhash lifetime, then simulates the same compiled legacy message with signature verification disabled and blockhash replacement disabled. It returns only the simulation slot, safe compute-unit count, and a sanitized success or failure category with an optional instruction index. It does not expose RPC logs, raw errors, account data, or return data, and it never signs or broadcasts. Simulation is evidence about that Devnet state and message at that time, not a guarantee of later execution.
+
+`recordExplicitDeploymentDecision` records only an explicit approve/reject decision from the transaction's fee-payer address and binds it to the preview digest. `executeAfterExplicitDeploymentApproval` snapshots the unsigned transaction, recomputes its digest and required signer list, and checks the still-connected fee payer, pinned Devnet identity, confirmed block height, and blockhash expiry before invoking the action with that snapshot. Missing, rejected, stale, mismatched, or unavailable approval evidence must not invoke that callback. `sendApprovedDeployment` composes this gate with Wallet Standard `signAndSendTransaction`: it requires the `sendDeployment()` readiness result for the same preview digest, a matching Devnet account, and exactly the runtime keypairs declared as additional signers. It partially signs the approved snapshot in memory, leaves fee-payer signing to the connected wallet, requests preflight and confirmed commitment, and returns either a confirmed result, confirmed execution failure, submitted-but-unconfirmed signature, or a sanitized unknown outcome. A transaction must not be retried after an ambiguous wallet result until its signature/account state is checked. The studio now connects this sender after offline candidate preparation, unsigned config-and-pool assembly, budget, preview, successful simulation, and explicit digest-bound approval. It has not prompted a wallet or sent a transaction.
+
+## 14.3 Seeded Devnet deployment profile
+
+`examples/demo-migration.json` is schema version 1 of the explicitly seeded `demo-v1` Devnet fixture. It is for deterministic judging and review, not a recommended production configuration. Its nested `migration` object preserves the original demo migration values. The profile additionally records the 1B fixed base supply, 9-decimal base token, 6-decimal Circle Devnet USDC candidate, zero pool-creation fee, disabled base-token vesting, simulator-only slot zero, and runtime-deployer wallet roles. The six explicit creator/partner liquidity buckets map directly to SDK percentages; the three-part `allocationIntent` remains a separate intent and is not used to derive those buckets. `sdkMapping` explicitly chooses the pinned SDK's customizable migration-fee option, DAMM v2 time-linear base-fee mode, and zero-period market-cap fee scheduler, so the 100 bps migrated-pool fee has no schedule progression. This SDK mapping is fixture configuration, not an additional value silently inferred from the original migration object.
+
+The original migration input does not define the DAMM v2 vesting duration. `demo-v1` explicitly assumes one tranche after one day, with no cliff, for each 20% vesting bucket. This assumption is sourced from the fixture's one-day `allocationIntent.lockDurationSeconds`; it is an added Devnet fixture assumption, not a value inferred by the protocol. Fixed-supply excess is calculated from pinned SDK supply helpers and routed to the deployer as leftover receiver after wallet resolution.
+
+The candidate builder can run offline with no wallet or RPC. It validates the non-address-dependent SDK configuration parameters, uses pinned SDK helpers to check fixed-supply bounds, preserves the exact quantized compiler curve, and serializes all BN/fixed-point values as decimal strings. Full `validateCompleteSdkConfigCandidate` runs again with the actual runtime deployer as leftover receiver immediately before SDK transaction construction. The transaction adapter binds payer, pool creator, fee claimer, and leftover receiver to that same explicitly connected Devnet wallet. Config and base-mint signer keypairs are runtime-only values held outside the candidate and report.
+
+The profile points to [`examples/devnet-token-metadata.json`](./examples/devnet-token-metadata.json) and its image asset. Mirrored assets in root `public/` are published through GitHub Pages at `https://xlaez.github.io/Tymba/devnet-token-metadata.json` and `https://xlaez.github.io/Tymba/devnet-token-metadata.svg`; the deployment workflow fetches both URLs and checks their content. The candidate fixture intentionally retains `DEVNET_METADATA_URI_REQUIRED`; callers must explicitly resolve it with the published JSON URI before transaction construction. Send readiness rejects unresolved or placeholder metadata. The Devnet USDC mint is also a candidate until read-only on-chain mint checks and DAMM v2 migration reachability have passed.
+
+`prepareDeployment()` means structurally validated and safely serialized; it does not mean transaction approval. `sendDeployment()` currently evaluates readiness only: candidate, matching runtime wallet, non-placeholder metadata URI, Devnet endpoint/genesis, successful preflight and simulation for the same message digest, and explicit approval for that digest and wallet must all be present. The current implementation returns `broadcast: "not-invoked"`; no signer or broadcaster is wired. Fixture, candidate, and transaction-builder automated checks use local SDK code and mocked RPC responses. No live Devnet request, signature, or transaction is evidence for this increment.
+
+---
+
+# 15. Transfer Hooks
+
+Transfer hooks are an advanced extension, not MVP core.
+
+Potential use:
+
+```text
+DBC swap
+   ↓
+Token-2022 transfer
+   ↓
+Custom hook program
+   ↓
+allow / reject / account
+```
+
+Possible launch-phase features:
+
+- eligibility allowlists,
+- participation accounting,
+- gated transfers,
+- launch-time behavioral restrictions.
+
+Important:
+
+Tymba must not claim vanilla DBC provides per-wallet ownership limits.
+
+Any such feature must be explicitly described as custom on-chain logic.
+
+Transfer hooks should be presented as:
+
+```text
+Advanced launch controls
+```
+
+rather than part of the basic curve compiler.
+
+---
+
+# 16. MVP Scope
+
+The bounty MVP should be intentionally narrow.
+
+## Must have
+
+1. Structured intent form.
+2. Optional natural-language intent input.
+3. Inverse curve solver.
+4. Legal Meteora DBC configuration output.
+5. Deterministic DBC simulator.
+6. Curve visualization.
+7. At least five adversarial scenarios.
+8. Economic audit report.
+9. Before/after optimizer comparison.
+10. Meteora devnet deployment.
+11. One strong prebuilt demo configuration.
+12. Shareable report URL or export.
+
+---
+
+## Nice to have
+
+- Mainnet deployment.
+- Public config auditing.
+- Historical pool imports.
+- Transfer-hook experiment.
+- AI explanations.
+- Saved workspaces.
+- Multi-user teams.
+- Public API.
+- MCP server.
+
+---
+
+## Explicitly out of scope for MVP
+
+- full launchpad ecosystem,
+- token discovery feed,
+- social layer,
+- portfolio management,
+- trading terminal,
+- arbitrary prediction markets,
+- full governance stack,
+- generalized DeFi protocol builder.
+
+---
+
+# 17. Recommended Architecture
+
+```text
+                    Web Client
+                       │
+          ┌────────────┼────────────┐
+          │            │            │
+       Design       Simulate      Audit
+          │            │            │
+          └────────────┼────────────┘
+                       │
+                  API / Backend
+                       │
+       ┌───────────────┼─────────────────┐
+       │               │                 │
+ Intent Parser     Curve Solver      DBC Adapter
+       │               │                 │
+       │          Deterministic           │
+       │           Simulator              │
+       │               │                 │
+       │         Monte Carlo Engine       │
+       │               │                 │
+       │       Adversarial Engine         │
+       │               │                 │
+       └───────────────┼─────────────────┘
+                       │
+                    Database
+                       │
+                       ▼
+                 Meteora / Solana
+```
+
+---
+
+# 18. Suggested Tech Stack
+
+Given the product domain and Meteora ecosystem:
+
+## Frontend
+
+```text
+tanstack
+TypeScript
+React
+Tailwind
+Recharts / lightweight custom SVG / Canvas
+Solana wallet adapter
+```
+
+Avoid overengineering visualization initially.
+
+---
+
+## Backend
+
+Option A:
+
+```text
+TypeScript / Node / NestJS / Fastify Adapter
+```
+
+Advantages:
+
+- easy sharing with frontend,
+- same number representations / schemas,
+- straightforward Meteora SDK integration.
+
+Option B:
+
+```text
+Rust simulation service
++
+TypeScript application backend
+```
+
+Use only if simulation performance becomes a bottleneck.
+
+For the bounty, TypeScript is likely enough.
+
+---
+
+## Database
+
+```text
+PostgreSQL
+```
+
+Useful entities:
+
+```text
+users
+projects
+market_intents
+solver_runs
+curve_candidates
+simulation_runs
+attack_runs
+audit_reports
+deployments
+```
+
+---
+
+## Queue / parallel simulation
+
+Initially:
+
+```text
+worker_threads
+```
+
+or:
+
+```text
+BullMQ + Redis
+```
+
+Only add distributed workers if Monte Carlo volume demands it.
+
+---
+
+# 19. Suggested Repository Structure
+
+```text
+tymba/
+│
+├── apps/
+│   ├── web/
+│   └── api/
+│
+├── packages/
+│   ├── domain/
+│   │   ├── market-intent/
+│   │   ├── curve/
+│   │   ├── fees/
+│   │   └── migration/
+│   │
+│   ├── dbc-math/
+│   │   ├── pricing.ts
+│   │   ├── segments.ts
+│   │   ├── swaps.ts
+│   │   └── migration.ts
+│   │
+│   ├── optimizer/
+│   │   ├── constraints.ts
+│   │   ├── objective.ts
+│   │   ├── candidate-generator.ts
+│   │   └── solve.ts
+│   │
+│   ├── simulator/
+│   │   ├── deterministic/
+│   │   ├── stochastic/
+│   │   ├── agents/
+│   │   └── metrics/
+│   │
+│   ├── adversarial/
+│   │   ├── sniper.ts
+│   │   ├── whale.ts
+│   │   ├── pump-dump.ts
+│   │   ├── sell-cascade.ts
+│   │   └── fee-timing.ts
+│   │
+│   ├── audit/
+│   │   ├── rules/
+│   │   ├── severity.ts
+│   │   └── report.ts
+│   │
+│   ├── meteora/
+│   │   ├── sdk.ts
+│   │   ├── config-builder.ts
+│   │   ├── deploy.ts
+│   │   └── fetch.ts
+│   │
+│   └── shared/
+│
+├── scripts/
+│   ├── verify-math.ts
+│   ├── compare-sdk.ts
+│   └── seed-demo.ts
+│
+├── tests/
+│   ├── dbc-math/
+│   ├── optimizer/
+│   ├── simulator/
+│   └── integration/
+│
+└── spec.md
+```
+
+---
+
+# 20. Core Domain Types
+
+The external `MarketIntent` is defined only in §7.1, and curve types are defined only in §7.3. Do not redefine either contract here. `CurrencyAmount` stores an atomic integer plus its decimal scale. The following domain contracts use `bigint` for basis points, time intervals, and protocol-sized integer parameters; the SDK adapter performs any checked conversion to SDK-specific representations.
+
+```ts
+type CurrencyAmount = {
+  raw: bigint;
+  decimals: number;
+};
+
+type FeeClock = "slot" | "timestamp";
+type FeeCollectionMode = "quote" | "output";
+
+type BaseFeeSchedule =
+  | { kind: "fixed"; feeBps: bigint }
+  | {
+      kind: "linear" | "exponential";
+      startingFeeBps: bigint;
+      endingFeeBps: bigint;
+      periodCount: bigint;
+      periodFrequency: bigint;
+      clock: FeeClock;
+    };
+
+type DynamicFeeConfiguration = {
+  binStepBps: bigint;
+  filterPeriodSeconds: bigint;
+  decayPeriodSeconds: bigint;
+  reductionFactorBps: bigint;
+  maxVolatilityAccumulator: bigint;
+  variableFeeControl: bigint;
+};
+
+type FeeConfiguration = {
+  base: BaseFeeSchedule;
+  dynamic?: DynamicFeeConfiguration;
+  collectFeeMode: FeeCollectionMode;
+  creatorTradingFeeShareBps: bigint;
+  migratedPool?: MigratedPoolFeeConfiguration;
+};
+
+type MigrationFeeConfiguration = {
+  feeBps: bigint;
+  creatorFeeShareBps: bigint;
+};
+
+type MigrationAllocationIntent = {
+  creatorLockedBps: bigint;
+  partnerLockedBps: bigint;
+  unlockedBps: bigint;
+  lockDurationSeconds?: bigint;
+};
+
+type LiquidityAllocation = {
+  creator: {
+    unlockedBps: bigint;
+    permanentlyLockedBps: bigint;
+    vestingBps: bigint;
+  };
+  partner: {
+    unlockedBps: bigint;
+    permanentlyLockedBps: bigint;
+    vestingBps: bigint;
+  };
+};
+
+type MigrationConfiguration = {
+  destination: "damm-v2";
+  fee?: MigrationFeeConfiguration;
+  allocationIntent?: MigrationAllocationIntent;
+  liquidityAllocation?: LiquidityAllocation;
+  migratedPoolFee?: MigratedPoolFeeConfiguration;
+};
+
+type MigratedPoolFeeConfiguration = {
+  feeBps: bigint;
+  collectFeeMode: "quote" | "output" | "compounding";
+  dynamicFeeEnabled: boolean;
+  compoundingFeeBps?: bigint;
+};
+
+type MigrationProgress = "bonding" | "curve-complete" | "locked-vesting" | "migrated";
+
+type SolverExplanation = {
+  code: string;
+  message: string;
+  segmentIndex?: number;
+};
+
+type SolverWarningCode =
+  | "constraint_conflict"
+  | "target_not_met"
+  | "protocol_limit"
+  | "unsupported_configuration"
+  | "allocation_mapping_unresolved"
+  | "verification_pending";
+
+type SolverWarning = {
+  code: SolverWarningCode;
+  severity: "info" | "warning" | "blocking";
+  message: string;
+  path?: string;
+  candidateId?: string;
+  verificationStatus?: VerificationStatus;
+};
+```
+
+`MigrationAllocationIntent` is the normalized three-part allocation in §7.1. `LiquidityAllocation` records the six creator/partner post-migration buckets described in §6.4. They are deliberately separate: the protocol-backed conversion between them has not been established and must not be guessed. BPS values, allocation sums, lock durations, and SDK-specific limits require runtime validation before compilation.
+
+Solver outputs are defined in §7.2, and pool state and deterministic trade results are defined in §8.1. The simulation, attack, audit, and deployment contracts are defined in §§20.1–20.4. Do not use JavaScript `number` for monetary values, prices, percentages, PnL, or economic ratios in any domain contract. Use `Decimal` for human economic values, `CurrencyAmount`/asset-tagged amounts for token quantities, and `bigint` for atomic integers, basis points, counts, slots, and timestamps.
+
+## 20.1 Simulation result contracts
+
+```ts
+type SimulationKind = "deterministic" | "stochastic";
+type SimulationRunStatus = "completed" | "partial" | "failed";
+
+type AgentArchetype =
+  | "retail-buyer"
+  | "whale"
+  | "sniper"
+  | "momentum-trader"
+  | "profit-taker"
+  | "panic-seller"
+  | "random-trader";
+
+type DistributionSummary<Value> = {
+  p05: Value;
+  median: Value;
+  p95: Value;
+};
+
+type SimulationUncertaintyLabel = "insufficient-data" | "low" | "moderate" | "high";
+
+type SimulationUncertainty = {
+  label: SimulationUncertaintyLabel;
+  reasons: readonly ("fewer-than-30-completed-runs" | "partial-or-failed-runs" | "wide-outcome-spread")[];
+  requestedSampleSize: bigint;
+  completedSampleSize: bigint;
+  completionRateBps: bigint;
+  relativeSpreadBps?: bigint;
+};
+
+type SimulationRunMetadata = {
+  id: string;
+  engineVersion: string;
+  sdkVersion: string;
+  startedAtSeconds: bigint;
+  completedAtSeconds?: bigint;
+};
+
+type SimulationFailure = {
+  code: string;
+  message: string;
+};
+
+type PostMigrationLiquidityAllocation = {
+  distributableLiquidity: bigint;
+  creator: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+  partner: { unlocked: bigint; permanentlyLocked: bigint; vesting: bigint };
+};
+
+type DeterministicSimulationMetrics = {
+  migrated: boolean;
+  finalSpotPrice: Decimal;
+  finalMigrationPrice?: Decimal;
+  finalMigrationFdv?: Decimal;
+  quoteAccumulated: AssetAmount<"quote">;
+  baseDistributed: AssetAmount<"base">;
+  baseDistributedBps: bigint;
+  maximumPriceImpactBps: bigint;
+  maximumDrawdownBps: bigint;
+  feesGenerated: AssetAmountPair;
+  migrationFees: {
+    partner: AssetAmount<"quote">;
+    creator: AssetAmount<"quote">;
+  };
+  surplus: {
+    protocol: AssetAmount<"quote">;
+    partner: AssetAmount<"quote">;
+    creator: AssetAmount<"quote">;
+  };
+  liquidityAllocation?: PostMigrationLiquidityAllocation;
+};
+
+type DeterministicSimulationResult = SimulationRunMetadata & {
+  kind: "deterministic";
+  status: "completed" | "partial";
+  initialState: PoolState;
+  finalState: PoolState;
+  trades: readonly TradeResult[];
+  metrics: DeterministicSimulationMetrics;
+  verificationStatus: VerificationStatus;
+};
+
+type AgentCounts = Record<AgentArchetype, bigint>;
+
+type EarlyParticipantAdvantageMetrics = {
+  priceAdvantageBps: bigint;
+  firstTenPercentQuoteAveragePrice: Decimal;
+  medianBuyerAveragePrice: Decimal;
+  quoteVolume: AssetAmount<"quote">;
+};
+
+type MigrationSurplusMetrics = {
+  overshootBps: bigint;
+  threshold: AssetAmount<"quote">;
+  overshoot: AssetAmount<"quote">;
+  protocol: AssetAmount<"quote">;
+  partner: AssetAmount<"quote">;
+  creator: AssetAmount<"quote">;
+};
+
+type StochasticSimulationSummary = {
+  graduationFrequencyBps: bigint;
+  quoteAccumulated: DistributionSummary<AssetAmount<"quote">>;
+  baseDistributed: DistributionSummary<AssetAmount<"base">>;
+  timeToMigrationSeconds?: DistributionSummary<bigint>;
+  maximumDrawdownBps: DistributionSummary<bigint>;
+  maximumPriceImpactBps: DistributionSummary<bigint>;
+  topHolderConcentrationBps?: DistributionSummary<bigint>;
+  topTenHolderConcentrationBps?: DistributionSummary<bigint>;
+  earlyParticipantAdvantage?: DistributionSummary<EarlyParticipantAdvantageMetrics>;
+  earlyParticipantAdvantageSampleSize?: bigint;
+  migrationSurplus?: DistributionSummary<MigrationSurplusMetrics>;
+  migrationSurplusSampleSize?: bigint;
+  feesGenerated: DistributionSummary<AssetAmountPair>;
+  creatorFees?: DistributionSummary<AssetAmountPair>;
+  sniperExtractionQuote?: DistributionSummary<AssetAmount<"quote">>;
+};
+
+type StochasticIterationOutcome = {
+  id: string;
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  status: "completed" | "partial" | "failed";
+  completedTicks: bigint;
+  failure?: SimulationFailure;
+};
+
+type StochasticSimulationResult = SimulationRunMetadata & {
+  kind: "stochastic";
+  status: "completed" | "partial";
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  requestedIterations: bigint;
+  completedIterations: bigint;
+  partialIterations: bigint;
+  failedIterations: bigint;
+  agentCounts: AgentCounts;
+  iterationOutcomes: readonly StochasticIterationOutcome[];
+  uncertainty: SimulationUncertainty;
+  summary: StochasticSimulationSummary;
+};
+
+type FailedStochasticSimulationResult = SimulationRunMetadata & {
+  kind: "stochastic";
+  status: "failed";
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  requestedIterations: bigint;
+  completedIterations: 0n;
+  partialIterations: bigint;
+  failedIterations: bigint;
+  iterationOutcomes: readonly StochasticIterationOutcome[];
+  uncertainty: SimulationUncertainty;
+  failure: SimulationFailure;
+};
+
+type FailedDeterministicSimulationResult = SimulationRunMetadata & {
+  kind: "deterministic";
+  status: "failed";
+  failure: SimulationFailure;
+};
+
+type FailedSimulationResult = FailedStochasticSimulationResult | FailedDeterministicSimulationResult;
+
+type SimulationResult =
+  | DeterministicSimulationResult
+  | StochasticSimulationResult
+  | FailedSimulationResult;
+```
+
+Amounts tagged `"quote"` or `"base"` are atomic token quantities with explicit decimals. Prices and FDV are human-unit `Decimal` values. Basis points use `10_000n` for 100%; time and iteration counts use `bigint`. Deterministic results preserve initial/final pool snapshots and trade outputs. Stochastic distribution fields summarize completed iterations; omitted metrics mean unavailable/not applicable, not zero.
+
+## 20.2 Attack result contracts
+
+```ts
+type AttackScenario =
+  | "opening-sniper"
+  | "whale-entry"
+  | "pump-and-dump"
+  | "sell-cascade"
+  | "fee-schedule-timing";
+
+type AttackRunStatus = "completed" | "partial" | "failed";
+type SeededAttackScenario = Exclude<AttackScenario, "fee-schedule-timing">;
+
+type AttackIterationOutcome = {
+  id: string;
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  status: "completed" | "partial" | "failed";
+  completedTicks: bigint;
+  failure?: AttackFailure;
+};
+
+type AttackRunMetadata = {
+  id: string;
+  randomSeed: bigint;
+  randomAlgorithm: "splitmix64-v1";
+  requestedIterations: bigint;
+  completedIterations: bigint;
+  partialIterations: bigint;
+  failedIterations: bigint;
+  iterationOutcomes: readonly AttackIterationOutcome[];
+  engineVersion: string;
+  sdkVersion: string;
+  startedAtSeconds: bigint;
+  completedAtSeconds?: bigint;
+};
+
+type AttackFailure = { code: string; message: string };
+
+type OpeningSniperMetrics = {
+  attackerPnlQuote: DistributionSummary<AssetAmount<"quote">>;
+  lateBuyerPriceDisadvantageBps: DistributionSummary<bigint>;
+  drawdownAfterExitBps: DistributionSummary<bigint>;
+  feesPaid: DistributionSummary<AssetAmountPair>;
+};
+
+type WhaleEntryMetrics = {
+  priceDisplacementBps: DistributionSummary<bigint>;
+  baseAcquired: DistributionSummary<AssetAmount<"base">>;
+  averageExecutionPrice: DistributionSummary<Decimal>;
+  postBuyConcentrationBps: DistributionSummary<bigint>;
+};
+
+type PumpAndDumpMetrics = {
+  attackerPnlQuote: DistributionSummary<AssetAmount<"quote">>;
+  peakToTroughDrawdownBps: DistributionSummary<bigint>;
+  lateBuyerLossBps: DistributionSummary<bigint>;
+  recoveryQuoteRequired: DistributionSummary<AssetAmount<"quote">>;
+  feesPaid: DistributionSummary<AssetAmountPair>;
+};
+
+type SellCascadeMetrics = {
+  maximumDrawdownBps: DistributionSummary<bigint>;
+  quoteOutflow: DistributionSummary<AssetAmount<"quote">>;
+  recoveryQuoteRequired: DistributionSummary<AssetAmount<"quote">>;
+  migrationDelaySeconds: DistributionSummary<bigint>;
+};
+
+type FeeScheduleTimingMetrics = {
+  bestEntryClock: SimulationClock;
+  feesSaved: AssetAmountPair;
+  pnlImprovementQuote: AssetAmount<"quote">;
+};
+
+type FeeScheduleCandidateOutcome = {
+  candidateIndex: bigint;
+  entryClock: SimulationClock;
+  status: "completed" | "failed";
+  feesPaid?: AssetAmountPair;
+  pnlQuote?: AssetAmount<"quote">;
+  failure?: AttackFailure;
+};
+
+type FeeScheduleTimingRunMetadata = {
+  id: string;
+  scenario: "fee-schedule-timing";
+  status: "completed" | "partial" | "failed";
+  candidateCount: bigint;
+  completedCandidates: bigint;
+  failedCandidates: bigint;
+  candidateOutcomes: readonly FeeScheduleCandidateOutcome[];
+  engineVersion: string;
+  sdkVersion: string;
+  startedAtSeconds: bigint;
+  completedAtSeconds: bigint;
+};
+
+type FeeScheduleTimingResult = FeeScheduleTimingRunMetadata & {
+  status: "completed" | "partial";
+  metrics: FeeScheduleTimingMetrics;
+};
+
+type FailedFeeScheduleTimingResult = FeeScheduleTimingRunMetadata & {
+  status: "failed";
+  failure: AttackFailure;
+};
+
+type CompletedAttackResult<Scenario extends AttackScenario, Metrics> =
+  AttackRunMetadata & {
+    scenario: Scenario;
+    status: "completed" | "partial";
+    metrics: Metrics;
+  };
+
+type FailedAttackResult = AttackRunMetadata & {
+  scenario: SeededAttackScenario;
+  status: "failed";
+  failure: AttackFailure;
+};
+
+type AttackResult =
+  | CompletedAttackResult<"opening-sniper", OpeningSniperMetrics>
+  | CompletedAttackResult<"whale-entry", WhaleEntryMetrics>
+  | CompletedAttackResult<"pump-and-dump", PumpAndDumpMetrics>
+  | CompletedAttackResult<"sell-cascade", SellCascadeMetrics>
+  | FeeScheduleTimingResult
+  | FailedAttackResult
+  | FailedFeeScheduleTimingResult;
+```
+
+The CLI wraps an attack result with the explicit market intent, objective weights, simulator configuration, scenario assumptions, and selected candidate ID. An optional positive `preScenarioBuyQuoteAtomic` performs an exact deterministic quote-token buy against the verified initial curve before the attack and is recorded as an assumption. A candidate compiled for an attack remains labeled `curve-draft` with `verificationStatus: "unverified"` until complete DBC configuration and token-supply validation exist. The report's evidence classification is `modeled`, and its status must never imply deployability.
+
+Quote/base quantities are asset-tagged atomic amounts. Prices are `Decimal`, percentages/concentration/drawdown are basis points, and durations/iteration counts use `bigint`. Attack metrics summarize completed seeded iterations; partial and failed outcomes remain visible but are excluded from distributions. If no iteration completes, return a failed result with no fabricated metrics. Fee-pair percentile components are summarized independently by asset. Attack runs preserve the exact iteration seeds and status so they can be replayed; the scenario does not imply that its assumed participants or behavior represent real users.
+
+## 20.3 Audit finding and evidence contracts
+
+```ts
+type AuditSeverity = "LOW" | "MODERATE" | "HIGH";
+
+type AuditFindingCategory =
+  | "price-stability"
+  | "concentration"
+  | "early-advantage"
+  | "sniper-exposure"
+  | "exit-liquidity-sensitivity"
+  | "migration-fragility"
+  | "fee-shock"
+  | "surplus-behavior"
+  | "post-migration-liquidity";
+
+type AuditEvidenceSource =
+  | "deterministic-simulation"
+  | "stochastic-simulation"
+  | "adversarial-simulation"
+  | "sdk-parity"
+  | "on-chain";
+
+type AuditEvidenceValue =
+  | { kind: "amount"; value: AssetAmount }
+  | { kind: "basis-points"; value: bigint }
+  | { kind: "decimal"; value: Decimal }
+  | { kind: "duration-seconds"; value: bigint }
+  | { kind: "count"; value: bigint };
+
+type AuditEvidence = {
+  source: AuditEvidenceSource;
+  reference: string;
+  metric: string;
+  value: AuditEvidenceValue;
+};
+
+type AuditFinding = {
+  id: string;
+  ruleId: string;
+  category: AuditFindingCategory;
+  severity: AuditSeverity;
+  severityMetric: AuditSeverityMetric;
+  severityValueBps: bigint;
+  severityThresholds: AuditSeverityThreshold;
+  severityPolicyId: string;
+  severityPolicyVersion: string;
+  severityPolicyClassification: "illustrative-demo-heuristic";
+  title: string;
+  summary: string;
+  evidence: readonly [AuditEvidence, ...AuditEvidence[]];
+  suggestedRemediations: readonly string[];
+};
+
+type AuditSeverityThreshold = {
+  moderateAtOrAboveBps: bigint;
+  highAtOrAboveBps: bigint;
+};
+
+type AuditSeverityPolicy = {
+  id: string;
+  version: string;
+  classification: "illustrative-demo-heuristic";
+  label: string;
+  thresholds: Readonly<Record<AuditSeverityMetric, AuditSeverityThreshold>>;
+};
+
+type AuditSeverityMetric =
+  | "early-price-impact-bps"
+  | "mid-price-impact-bps"
+  | "late-price-impact-bps"
+  | "maximum-price-impact-bps"
+  | "maximum-drawdown-bps"
+  | "top-holder-concentration-bps"
+  | "top-ten-holder-concentration-bps"
+  | "early-buyer-price-advantage-bps"
+  | "sniper-return-bps"
+  | "exit-recovery-quote-bps"
+  | "migration-failure-frequency-bps"
+  | "fee-shock-bps"
+  | "migration-surplus-bps"
   | "unlocked-post-migration-liquidity-bps";
 
 type AuditMetricObservation = {
@@ -994,7 +2611,7 @@ type DeploymentRecord = {
 
 The status fields describe lifecycle evidence, not authorization logic: runtime validation must enforce legal transitions and require recorded explicit user approval before signing or broadcast. An approval is bound to the exact fee-quoted message digest and fee-payer wallet address. Immediately before an approved action, recompute the digest from the unsigned transaction, confirm the same wallet is connected, recheck the pinned Devnet endpoint/genesis and blockhash lifetime, and stop on any mismatch or unavailable check. Only public chain identifiers and transaction data belong in this record; never include private keys, seed phrases, signer objects, or other signing material. `verified` requires fetched on-chain state and a completed comparison; mismatches remain explicit and must not be hidden by a successful transaction confirmation.
 
-The current web preflight checks the fixed Solana Devnet RPC identity and a connected wallet's public Devnet account plus legacy-transaction capability. This is access readiness only: it creates no `DeploymentRecord`, validates no assembled SDK configuration or balance, and does not build, sign, or send a transaction. The `demo-v1` adapter can independently build and validate an offline candidate and can assemble an unsigned config-and-pool transaction after runtime wallet and metadata resolution. The budget, preview, simulation, and approval evidence have not yet been wired to the web flow or to a broadcaster. A passing preflight must not advance deployment or candidate verification status.
+The current web flow checks the fixed Solana Devnet RPC identity and connected wallet account and legacy-transaction capability. The user can prepare the complete `demo-v1` candidate offline, explicitly resolve the published metadata URI, and request unsigned transaction assembly. It then performs a balance/rent budget check and unsigned simulation, displays the public transaction summary and exact message digest, and requires explicit digest-bound user approval before asking Wallet Standard to sign and send. Runtime config and base-mint keypairs are generated in page memory and are never sent to the local API or persisted. A passing preflight, budget, or simulation does not create a `DeploymentRecord` or advance candidate verification status. The browser send path is wired but has not been used; deployment record persistence and on-chain verification remain separate work.
 
 ## 20.5 Shared validation, solver, and verification statuses
 
@@ -1735,9 +3352,9 @@ Convert metrics into findings and suggested remediations.
 
 ## Phase 6 — UI
 
-Current root web implementation connects reviewed structured intent, curve-draft compilation and visualization, deterministic scripts, five explicit attack models, evidence-backed audits with a versioned heuristic policy, paired numeric-objective hardening, exact advanced curve units, and versioned audit report export. A read-only Devnet and wallet preflight is available after candidate selection. Phase 8 now has the schema-versioned seeded `demo-v1` profile, offline candidate assembly/validation/serialization, runtime wallet and metadata resolution, unsigned pinned-SDK config/pool transaction assembly, budget and preview/simulation gates, digest-bound approval, and a Wallet Standard sender adapter. The sender adapter is not connected to the studio. The metadata assets are hosted and fetched through GitHub Pages; the candidate URI remains unresolved until explicit runtime resolution. No wallet prompt, signature, or transaction has occurred. Deployment record persistence, on-chain state fetch, parity verification, and automatic prose interpretation remain open. The web audit lacks standalone stochastic-cohort and paired late-capital-stress inputs; absent categories remain unavailable. Hardening requires a retained script, reviewed stochastic population/seed, and retained attack configurations without warm-ups. Editing source inputs invalidates dependent results.
+Current root web implementation connects reviewed structured intent, curve-draft compilation and visualization, deterministic scripts, five explicit attack models, evidence-backed audits with a versioned heuristic policy, paired numeric-objective hardening, exact advanced curve units, and versioned audit report export. Phase 8 now has the schema-versioned seeded `demo-v1` profile, offline candidate assembly/validation/serialization, runtime wallet and metadata resolution, unsigned pinned-SDK config/pool transaction assembly, budget and preview/simulation gates, digest-bound approval, and a Wallet Standard sender connected to the studio. The metadata assets are hosted and fetched through GitHub Pages; the candidate URI remains unresolved until the user explicitly selects the published URL. No wallet prompt, signature, or transaction has occurred. Deployment record persistence, on-chain state fetch, parity verification, and automatic prose interpretation remain open. The web audit lacks standalone stochastic-cohort and paired late-capital-stress inputs; absent categories remain unavailable. Hardening requires a retained script, reviewed stochastic population/seed, and retained attack configurations without warm-ups. Editing source inputs invalidates dependent results.
 
-`buildDemoV1MarketTransaction` takes the offline candidate plus a connected deployer public key, config/base-mint signer public keys, and a Devnet connection. It refuses unresolved authority or metadata before RPC use, binds the deployer to payer, pool creator, fee claimer, and leftover receiver, and delegates to `buildMeteoraMarketTransaction`. That low-level Devnet adapter revalidates the fully assembled candidate immediately before the pinned SDK 1.5.13 combined config-and-pool builder, confirms the fixed Devnet genesis and a classic SPL quote mint with the fixture's six decimals, requires token name/symbol/metadata URI, and returns an unsigned transaction plus derived public addresses, signer addresses, rent targets, and any configured pool-creation SOL debit. It rejects transactions that exceed Solana's legacy wire-packet limit. The current-source account lengths are marked unverified against the deployed Devnet programs; tests mock identity and quote-mint reads, and nothing is signed or submitted. The compile CLI still emits curve drafts only; the separate deployment API uses the seeded profile and does not yet connect to the studio.
+`buildDemoV1MarketTransaction` takes the offline candidate plus a connected deployer public key, config/base-mint signer public keys, and a Devnet connection. It refuses unresolved authority or metadata before RPC use, binds the deployer to payer, pool creator, fee claimer, and leftover receiver, and delegates to `buildMeteoraMarketTransaction`. That low-level Devnet adapter revalidates the fully assembled candidate immediately before the pinned SDK 1.5.13 combined config-and-pool builder, confirms the fixed Devnet genesis and a classic SPL quote mint with the fixture's six decimals, requires token name/symbol/metadata URI, and returns an unsigned transaction plus derived public addresses, signer addresses, rent targets, and any configured pool-creation SOL debit. It rejects transactions that exceed Solana's legacy wire-packet limit. Config and pool lengths match current Meteora source; SPL and metadata lengths use their documented layouts. Devnet rent quotes and unsigned simulation are performed in the studio, but the deployed Devnet account layouts have not been independently fetched. Nothing has been signed or submitted. The compile CLI still emits curve drafts only; the deployment API builds the seeded profile for the studio flow.
 
 The product-flow claims boundary uses shared, visible stage-specific evidence notices (`src/web/evidence.ts`, `src/web/EvidenceNotice.tsx`). Compile scope warnings are not hidden behind details. Satisfied core targets do not promise demand or fundraising; curve/script completion does not prove on-chain migration; attack percentiles are sample observations, not future bounds. LOW/MODERATE/HIGH remain provisional versioned heuristic classifications, not safety certificates, and missing evidence is not zero risk. Hardening run completion is distinct from per-metric improvement under tested inputs; partial comparisons remain explicitly partial and unavailable comparisons have no improvement assessment. These presentation constraints do not change domain metrics, policy thresholds, or verification status.
 
@@ -1777,7 +3394,7 @@ Example:
 pnpm tymba compile examples/demo-compile-request.json
 ```
 
-The compile-request envelope contains the canonical `MarketIntent`, explicit objective weights, and deterministic simulator configuration. `MarketIntent` remains the economic input; objective weights and simulator state are separate and must not be silently defaulted. See `examples/demo-compile-request.json` for a full request. A MarketIntent-only file is rejected with a clear request for the missing solver configuration. The compile CLI returns simulator-checked, SDK-curve-validated drafts with a `blocked` status; their protocol `verificationStatus` remains `unverified`, and no deployable configuration is emitted from that command. Separately, the Phase 8 `buildCandidate()` API combines the tracked compile request with versioned profile `demo-v1` to create and serialize a complete offline SDK candidate; it defers runtime receiver-dependent validation and is not wired to the studio or compile CLI.
+The compile-request envelope contains the canonical `MarketIntent`, explicit objective weights, and deterministic simulator configuration. `MarketIntent` remains the economic input; objective weights and simulator state are separate and must not be silently defaulted. See `examples/demo-compile-request.json` for a full request. A MarketIntent-only file is rejected with a clear request for the missing solver configuration. The compile CLI returns simulator-checked, SDK-curve-validated drafts with a `blocked` status; their protocol `verificationStatus` remains `unverified`, and no deployable configuration is emitted from that command. Separately, the Phase 8 `buildCandidate()` API combines the tracked compile request with versioned profile `demo-v1` to create and serialize a complete offline SDK candidate. The studio invokes this API for its selected candidate without changing the compile CLI contract.
 
 The following is the `marketIntent` portion of the compile request:
 
