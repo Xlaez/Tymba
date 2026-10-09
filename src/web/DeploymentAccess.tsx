@@ -1,5 +1,5 @@
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { SolanaSignAndSendTransaction } from "@solana/wallet-standard-features";
+import { SolanaSignTransaction } from "@solana/wallet-standard-features";
 import { getWallets } from "@wallet-standard/app";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -27,7 +27,9 @@ import { DEMO_V1_METADATA_URI } from "../meteora/demo-v1-metadata.js";
 import { postJson } from "./api.js";
 
 type RegisteredWallet = ReturnType<ReturnType<typeof getWallets>["get"]>[number];
-type WalletAccount = Parameters<WalletSendFeature["signAndSendTransaction"]>[0]["account"];
+type WalletAccount = Parameters<
+  NonNullable<WalletSendFeature["signAndSendTransaction"]>
+>[0]["account"];
 type WalletConnectFeature = {
   connect: (input: { silent: false }) => Promise<{ accounts: readonly unknown[] }>;
 };
@@ -77,6 +79,7 @@ type PreparedTransaction = {
   candidate: unknown;
   candidateDigestHex: string;
   transaction: Transaction;
+  reviewedMessageHex: string;
   configAddress: string;
   baseMintAddress: string;
   poolAddress: string;
@@ -99,6 +102,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(atob(value), (character) => character.charCodeAt(0));
+}
+
+function messageHex(transaction: Transaction, feePayer: PublicKey, blockhash: string): string {
+  const message = new Transaction({ feePayer, recentBlockhash: blockhash })
+    .add(...transaction.instructions)
+    .serializeMessage();
+  return [...message].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function lamports(value: bigint): string {
@@ -134,7 +144,9 @@ function resultText(result: WalletSubmissionResult): string {
     case "preflight-rejected":
       return "Brave Wallet could not find the prepared blockhash during preflight simulation. Prepare and simulate a fresh transaction, then review it again.";
     case "failed-before-wallet":
-      return "Runtime transaction signing failed before the connected wallet was asked to approve.";
+      return result.reason === "wallet-signing-failed"
+        ? "The wallet did not return a signed transaction. Nothing was broadcast; prepare a fresh transaction and try again."
+        : "Runtime transaction signing failed before the connected wallet was asked to approve.";
     case "blocked":
       return `Submission was blocked by the deployment gate (${result.code}).`;
   }
@@ -161,6 +173,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
   const [prepared, setPrepared] = useState<PreparedTransaction | null>(null);
   const [approved, setApproved] = useState(false);
   const [submission, setSubmission] = useState<WalletSubmissionResult | null>(null);
+  const [submissionHistoryChecked, setSubmissionHistoryChecked] = useState(false);
   const connectedAddress = useRef<string | null>(null);
   const connectedAccount = useRef<WalletAccount | null>(null);
   const runtimeSigners = useRef<readonly Keypair[] | null>(null);
@@ -414,6 +427,11 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
         candidate: JSON.parse(result.candidate) as unknown,
         candidateDigestHex: result.candidateDigestHex,
         transaction,
+        reviewedMessageHex: messageHex(
+          transaction,
+          new PublicKey(walletAddress),
+          simulation.preview.blockhash,
+        ),
         configAddress: result.configAddress,
         baseMintAddress: result.baseMintAddress,
         poolAddress: result.poolAddress,
@@ -466,7 +484,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
     }
     setDeploymentBusy(true);
     setDeploymentError("");
-    setSendProgress("Recording approval and rechecking Devnet readiness…");
+    setSendProgress("Recording your approval…");
     try {
       const decision = recordExplicitDeploymentDecision({
         decision: "approve",
@@ -476,33 +494,39 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
       });
       if (decision.status !== "recorded")
         throw new Error("The explicit approval record was invalid.");
-      const readiness = await postJson<DeploymentReadinessResult>("/api/deployment/readiness", {
-        candidate: prepared.candidate,
-        connectedWalletPublicKey: walletAddress,
-        transactionMessageDigestHex: simulation.preview.messageDigestHex,
-        preflight: { status: "sufficient", messageDigestHex: budget.evidence.messageDigestHex },
-        simulation: { status: "succeeded", messageDigestHex: simulation.preview.messageDigestHex },
-        approval: {
-          status: decision.approval.status,
-          approverAddress: decision.approval.approverAddress,
-          messageDigestHex: decision.approval.messageDigestHex,
-        },
-      });
-      if (readiness.status !== "ready") throw new Error(formatReadinessBlock(readiness));
-      const rawFeature = selectedWallet?.features[SolanaSignAndSendTransaction];
+      const rawFeature = selectedWallet?.features[SolanaSignTransaction];
       const accountNow = connectedAccount.current;
-      if (
-        !isRecord(rawFeature) ||
-        typeof rawFeature.signAndSendTransaction !== "function" ||
-        !accountNow
-      )
-        throw new Error("The connected wallet no longer exposes its validated send account.");
+      if (!isRecord(rawFeature) || typeof rawFeature.signTransaction !== "function" || !accountNow)
+        throw new Error("The connected wallet does not expose transaction signing.");
       setSendProgress("Opening Brave Wallet for final signing approval…");
       const result = await sendApprovedDeployment({
         approval: decision.approval,
-        readiness,
+        readiness: async () => {
+          setSendProgress("Wallet signed. Rechecking Devnet before submission…");
+          const readiness = await postJson<DeploymentReadinessResult>("/api/deployment/readiness", {
+            candidate: prepared.candidate,
+            connectedWalletPublicKey: walletAddress,
+            transactionMessageDigestHex: simulation.preview.messageDigestHex,
+            preflight: {
+              status: "sufficient",
+              messageDigestHex: budget.evidence.messageDigestHex,
+            },
+            simulation: {
+              status: "succeeded",
+              messageDigestHex: simulation.preview.messageDigestHex,
+            },
+            approval: {
+              status: decision.approval.status,
+              approverAddress: decision.approval.approverAddress,
+              messageDigestHex: decision.approval.messageDigestHex,
+            },
+          });
+          if (readiness.status !== "ready") throw new Error(formatReadinessBlock(readiness));
+          return readiness;
+        },
         transaction: prepared.transaction,
         preview: simulation.preview,
+        reviewedMessageHex: prepared.reviewedMessageHex,
         connection: connection.current,
         getConnectedWalletAddress: () => connectedAddress.current,
         walletAccount: accountNow,
@@ -510,9 +534,14 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
         additionalSigners: runtimeSigners.current ?? [],
       });
       setSubmission(result);
+      setSubmissionHistoryChecked(false);
       for (const signer of runtimeSigners.current ?? []) signer.secretKey.fill(0);
       runtimeSigners.current = null;
     } catch (failure) {
+      for (const signer of runtimeSigners.current ?? []) signer.secretKey.fill(0);
+      runtimeSigners.current = null;
+      setPrepared(null);
+      setApproved(false);
       setDeploymentError(
         failure instanceof Error ? failure.message : "Approved send could not proceed.",
       );
@@ -537,8 +566,8 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
       return "A successful simulation is required before sending.";
     if (prepared.budget.status !== "sufficient")
       return "A sufficient Devnet balance is required before sending.";
-    const walletFeature = selectedWallet?.features[SolanaSignAndSendTransaction];
-    if (!isRecord(walletFeature) || typeof walletFeature.signAndSendTransaction !== "function")
+    const walletFeature = selectedWallet?.features[SolanaSignTransaction];
+    if (!isRecord(walletFeature) || typeof walletFeature.signTransaction !== "function")
       return "The selected wallet does not currently expose transaction signing.";
     if (deploymentBusy) return "The transaction is already being processed.";
     if (submission !== null) return "This transaction already has a submission result.";
@@ -884,6 +913,38 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
             >
               Prepare a fresh transaction
             </button>
+          )}
+          {submission.status === "outcome-unknown" && (
+            <div className="deployment-unknown-recovery">
+              <label className="confirmation" htmlFor="deployment-history-checked">
+                <input
+                  id="deployment-history-checked"
+                  type="checkbox"
+                  checked={submissionHistoryChecked}
+                  onChange={(event) => setSubmissionHistoryChecked(event.target.checked)}
+                />
+                <span>
+                  I checked Brave Wallet activity and Solana Devnet history for this deployment; no
+                  transaction was submitted.
+                </span>
+              </label>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!submissionHistoryChecked}
+                onClick={() => {
+                  setSubmission(null);
+                  setSubmissionHistoryChecked(false);
+                  clearPrepared();
+                }}
+              >
+                Clear result and prepare again
+              </button>
+              <p className="muted">
+                This only clears the old result and transaction preview. You must prepare, simulate,
+                review, and approve a new transaction before the wallet is asked to sign.
+              </p>
+            </div>
           )}
         </section>
       )}

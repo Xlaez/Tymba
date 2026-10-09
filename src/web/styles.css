@@ -586,6 +586,21 @@ h1 {
 .deployment-send-help {
   margin-bottom: 0;
 }
+.deployment-unknown-recovery {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid #dce5df;
+}
+.deployment-unknown-recovery .confirmation {
+  align-items: flex-start;
+  margin: 0;
+}
+.deployment-unknown-recovery p {
+  margin: 0;
+}
 .deployment-metadata-label {
   display: block;
   margin-bottom: 8px;
