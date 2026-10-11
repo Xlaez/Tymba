@@ -1,12 +1,17 @@
+import {
+  SolanaSignTransaction,
+  type SolanaSignTransactionInput,
+} from "@solana/wallet-standard-features";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { SolanaSignTransaction } from "@solana/wallet-standard-features";
 import { getWallets } from "@wallet-standard/app";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { braveWalletSigningFeature } from "../meteora/brave-wallet-signing.js";
+import { DEMO_V1_METADATA_URI } from "../meteora/demo-v1-metadata.js";
+import { recordExplicitDeploymentDecision } from "../meteora/deployment-approval-gate.js";
 import {
   assessDeploymentBudget,
   type DeploymentBudgetResult,
 } from "../meteora/deployment-budget.js";
-import { recordExplicitDeploymentDecision } from "../meteora/deployment-approval-gate.js";
 import {
   DEVNET_GENESIS_HASH,
   DEVNET_RPC_URL,
@@ -23,19 +28,32 @@ import {
   type WalletSendFeature,
   type WalletSubmissionResult,
 } from "../meteora/deployment-wallet-sender.js";
-import { DEMO_V1_METADATA_URI } from "../meteora/demo-v1-metadata.js";
 import { postJson } from "./api.js";
 
 type RegisteredWallet = ReturnType<ReturnType<typeof getWallets>["get"]>[number];
-type WalletAccount = Parameters<
-  NonNullable<WalletSendFeature["signAndSendTransaction"]>
->[0]["account"];
+type WalletAccount = SolanaSignTransactionInput["account"];
 type WalletConnectFeature = {
   connect: (input: { silent: false }) => Promise<{ accounts: readonly unknown[] }>;
 };
 type WalletEventsFeature = {
   on: (event: "change", listener: (properties: unknown) => void) => () => void;
 };
+
+function getWalletSigningFeature(
+  wallet: RegisteredWallet | null,
+  account: WalletAccount | null,
+): WalletSendFeature | null {
+  if (!wallet || !account) return null;
+  if (wallet.name.toLowerCase().includes("brave") && typeof window !== "undefined") {
+    const braveProvider = (window as Window & { braveSolana?: unknown }).braveSolana;
+    const directFeature = braveWalletSigningFeature(braveProvider, account.address);
+    if (directFeature) return directFeature;
+  }
+  const standardFeature = wallet.features[SolanaSignTransaction];
+  return isRecord(standardFeature) && typeof standardFeature.signTransaction === "function"
+    ? (standardFeature as unknown as WalletSendFeature)
+    : null;
+}
 type DeploymentCandidateResult =
   | { status: "prepared"; candidate: string; candidateDigestHex: string }
   | { status: "blocked"; issues: readonly { code: string; message: string }[] };
@@ -95,6 +113,12 @@ type PreparedTransaction = {
   budget: DeploymentBudgetResult;
   simulation: DeploymentSimulationResult;
 };
+type BlockhashFreshness = Readonly<{
+  status: "checking" | "valid" | "expiring" | "expired" | "unavailable";
+  remainingBlockHeights?: number;
+}>;
+
+const BLOCKHASH_SEND_SAFETY_MARGIN = 20;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -131,6 +155,17 @@ function formatReadinessBlock(result: Extract<DeploymentReadinessResult, { statu
     : "Deployment readiness was blocked without a reason. Prepare the transaction again and retry.";
 }
 
+function blockhashFreshnessText(freshness: BlockhashFreshness | null): string {
+  if (!freshness || freshness.status === "checking")
+    return "Checking this blockhash on Tymba's Devnet RPC…";
+  if (freshness.status === "unavailable")
+    return "Tymba could not verify this blockhash on its Devnet RPC.";
+  if (freshness.status === "expired") return "Expired on Tymba's Devnet RPC.";
+  if (freshness.status === "expiring")
+    return `Near expiry on Tymba's Devnet RPC · ${freshness.remainingBlockHeights ?? 0} block heights remain.`;
+  return `Valid on Tymba's Devnet RPC · ${freshness.remainingBlockHeights ?? 0} block heights remain.`;
+}
+
 function resultText(result: WalletSubmissionResult): string {
   switch (result.status) {
     case "confirmed":
@@ -143,11 +178,25 @@ function resultText(result: WalletSubmissionResult): string {
       return "The wallet outcome is unknown. Do not retry until the wallet and Devnet history have been checked.";
     case "preflight-rejected":
       return "Brave Wallet could not find the prepared blockhash during preflight simulation. Prepare and simulate a fresh transaction, then review it again.";
-    case "failed-before-wallet":
-      return result.reason === "wallet-signing-failed"
-        ? "The wallet did not return a signed transaction. Nothing was broadcast; prepare a fresh transaction and try again."
-        : "Runtime transaction signing failed before the connected wallet was asked to approve.";
+    case "failed-before-wallet": {
+      const walletName =
+        result.walletSource === "brave-provider"
+          ? "Brave Wallet signTransaction"
+          : "Wallet Standard signing";
+      const diagnostic = result.diagnostic ? ` Wallet detail: ${result.diagnostic}` : "";
+      if (result.reason === "runtime-signer-failed")
+        return "Runtime transaction signing failed before the connected wallet was asked to approve.";
+      if (result.reason === "wallet-signing-rejected")
+        return `The wallet rejected or cancelled the signing request. Nothing was broadcast.${diagnostic} Prepare a fresh transaction to try again.`;
+      if (result.reason === "wallet-blockhash-invalid")
+        return `The wallet no longer recognizes this transaction's blockhash. Nothing was broadcast.${diagnostic} Prepare and simulate a fresh transaction before approving.`;
+      if (result.reason === "wallet-returned-invalid-transaction")
+        return `The wallet request completed without a valid signed transaction response. Nothing was broadcast.${diagnostic} Check the selected wallet and try a fresh transaction.`;
+      return `${walletName} failed before a signed transaction was returned. Nothing was broadcast.${diagnostic} Prepare a fresh transaction to try again.`;
+    }
     case "blocked":
+      if (result.code === "wallet_user_gesture_missing")
+        return "The browser no longer recognizes this as a direct user click, so Tymba did not call the wallet. Click Approve again from the page.";
       return `Submission was blocked by the deployment gate (${result.code}).`;
   }
 }
@@ -171,6 +220,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
   const [deploymentBusy, setDeploymentBusy] = useState(false);
   const [sendProgress, setSendProgress] = useState("");
   const [prepared, setPrepared] = useState<PreparedTransaction | null>(null);
+  const [blockhashFreshness, setBlockhashFreshness] = useState<BlockhashFreshness | null>(null);
   const [approved, setApproved] = useState(false);
   const [submission, setSubmission] = useState<WalletSubmissionResult | null>(null);
   const [submissionHistoryChecked, setSubmissionHistoryChecked] = useState(false);
@@ -178,6 +228,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
   const connectedAccount = useRef<WalletAccount | null>(null);
   const runtimeSigners = useRef<readonly Keypair[] | null>(null);
   const connection = useRef<Connection | null>(null);
+  const preview = prepared?.simulation.status === "complete" ? prepared.simulation.preview : null;
 
   const clearPrepared = useCallback(() => {
     for (const signer of runtimeSigners.current ?? []) signer.secretKey.fill(0);
@@ -194,6 +245,54 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
     },
     [],
   );
+
+  useEffect(() => {
+    const rpc = connection.current;
+    if (!preview || !rpc) {
+      setBlockhashFreshness(null);
+      return;
+    }
+    let active = true;
+    let checking = false;
+    setBlockhashFreshness({ status: "checking" });
+    const check = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const [validity, currentBlockHeight] = await Promise.all([
+          rpc.isBlockhashValid(preview.blockhash, { commitment: "confirmed" }),
+          rpc.getBlockHeight("confirmed"),
+        ]);
+        if (!active) return;
+        if (
+          typeof validity.value !== "boolean" ||
+          !Number.isSafeInteger(currentBlockHeight) ||
+          currentBlockHeight < 0
+        ) {
+          setBlockhashFreshness({ status: "unavailable" });
+          return;
+        }
+        const remainingBlockHeights = preview.lastValidBlockHeight - currentBlockHeight;
+        const status =
+          !validity.value || remainingBlockHeights < 0
+            ? "expired"
+            : remainingBlockHeights <= BLOCKHASH_SEND_SAFETY_MARGIN
+              ? "expiring"
+              : "valid";
+        setBlockhashFreshness({ status, remainingBlockHeights });
+      } catch {
+        if (active) setBlockhashFreshness({ status: "unavailable" });
+      } finally {
+        checking = false;
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => void check(), 3_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [preview]);
 
   useEffect(() => {
     let active = true;
@@ -494,11 +593,15 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
       });
       if (decision.status !== "recorded")
         throw new Error("The explicit approval record was invalid.");
-      const rawFeature = selectedWallet?.features[SolanaSignTransaction];
       const accountNow = connectedAccount.current;
-      if (!isRecord(rawFeature) || typeof rawFeature.signTransaction !== "function" || !accountNow)
+      const signingFeature = getWalletSigningFeature(selectedWallet, accountNow);
+      if (!signingFeature || !accountNow)
         throw new Error("The connected wallet does not expose transaction signing.");
-      setSendProgress("Opening Brave Wallet for final signing approval…");
+      setSendProgress(
+        signingFeature.source === "brave-provider"
+          ? "Request sent to Brave Wallet. Waiting for final signing approval…"
+          : "Request sent to the connected wallet. Waiting for final signing approval…",
+      );
       const result = await sendApprovedDeployment({
         approval: decision.approval,
         readiness: async () => {
@@ -530,7 +633,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
         connection: connection.current,
         getConnectedWalletAddress: () => connectedAddress.current,
         walletAccount: accountNow,
-        walletFeature: rawFeature as unknown as WalletSendFeature,
+        walletFeature: signingFeature,
         additionalSigners: runtimeSigners.current ?? [],
       });
       setSubmission(result);
@@ -558,6 +661,14 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
       return "The connected wallet account is unavailable. Reconnect the wallet before sending.";
     if (!connection.current)
       return "The Devnet connection is unavailable. Prepare the transaction again.";
+    if (!blockhashFreshness || blockhashFreshness.status === "checking")
+      return "Checking the reviewed transaction's blockhash on Devnet…";
+    if (blockhashFreshness.status === "unavailable")
+      return "Tymba could not verify the transaction blockhash. Prepare and simulate it again before approval.";
+    if (blockhashFreshness.status === "expired")
+      return "This transaction's blockhash has expired. Prepare and simulate a fresh transaction.";
+    if (blockhashFreshness.status === "expiring")
+      return `This transaction's blockhash is close to expiry (${blockhashFreshness.remainingBlockHeights ?? 0} block heights remain). Prepare and simulate a fresh transaction.`;
     if (!approved) return "Check the approval box before sending this transaction.";
     if (
       prepared.simulation.status !== "complete" ||
@@ -566,8 +677,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
       return "A successful simulation is required before sending.";
     if (prepared.budget.status !== "sufficient")
       return "A sufficient Devnet balance is required before sending.";
-    const walletFeature = selectedWallet?.features[SolanaSignTransaction];
-    if (!isRecord(walletFeature) || typeof walletFeature.signTransaction !== "function")
+    if (!getWalletSigningFeature(selectedWallet, connectedAccount.current))
       return "The selected wallet does not currently expose transaction signing.";
     if (deploymentBusy) return "The transaction is already being processed.";
     if (submission !== null) return "This transaction already has a submission result.";
@@ -576,7 +686,6 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
 
   const accessReady =
     networkStatus === "verified" && walletAddress.length > 0 && walletEventsMonitored;
-  const preview = prepared?.simulation.status === "complete" ? prepared.simulation.preview : null;
   const signature = submission && "signature" in submission ? submission.signature : null;
 
   return (
@@ -748,6 +857,12 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
           <dl className="deployment-summary">
             <dt>Network</dt>
             <dd>Solana Devnet · {DEVNET_RPC_URL}</dd>
+            <dt>Recent blockhash</dt>
+            <dd>
+              <code>{preview.blockhash}</code>
+            </dd>
+            <dt>Blockhash status</dt>
+            <dd>{blockhashFreshnessText(blockhashFreshness)}</dd>
             <dt>Fee payer</dt>
             <dd>
               <code>{preview.feePayer}</code>
@@ -794,6 +909,12 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
               <code>{preview.messageDigestHex}</code>
             </dd>
           </dl>
+          <output className="muted">
+            The metadata URL may stay the same; a blockhash error concerns this transaction's recent
+            network hash. If Tymba reports it valid while Brave rejects it, the RPC views may differ
+            or the hash may age out before Brave checks it. Prepare and review a fresh transaction,
+            then approve promptly.
+          </output>
           <h4>Instructions</h4>
           <ol className="deployment-instructions">
             {preview.instructions.map((instruction) => {

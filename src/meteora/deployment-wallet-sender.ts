@@ -21,6 +21,7 @@ export type WalletSendRequest = Readonly<{
 }>;
 
 export type WalletSendFeature = Readonly<{
+  source?: "brave-provider" | "wallet-standard";
   signTransaction?: (
     ...requests: readonly SolanaSignTransactionInput[]
   ) => Promise<readonly unknown[]>;
@@ -55,7 +56,14 @@ export type WalletSubmissionResult =
     }>
   | Readonly<{
       status: "failed-before-wallet";
-      reason: "runtime-signer-failed" | "wallet-signing-failed";
+      reason:
+        | "runtime-signer-failed"
+        | "wallet-signing-failed"
+        | "wallet-signing-rejected"
+        | "wallet-blockhash-invalid"
+        | "wallet-returned-invalid-transaction";
+      walletSource?: "brave-provider" | "wallet-standard";
+      diagnostic?: string;
     }>
   | Readonly<{
       status: "blocked";
@@ -72,7 +80,8 @@ export type WalletSubmissionResult =
         | "budget_expired"
         | "approval_rpc_failed"
         | "invalid_additional_signers"
-        | "wallet_account_mismatch";
+        | "wallet_account_mismatch"
+        | "wallet_user_gesture_missing";
     }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -140,6 +149,57 @@ function walletErrorText(value: unknown, depth = 0): string {
 
 function isBlockhashPreflightFailure(value: unknown): boolean {
   return /blockhash(?: not found|notfound)/i.test(walletErrorText(value));
+}
+
+function isWalletSigningRejection(value: unknown): boolean {
+  if (isRecord(value) && value.code === 4001) return true;
+  return /user rejected|request rejected|user denied|cancelled|canceled/i.test(
+    walletErrorText(value),
+  );
+}
+
+function isWalletBlockhashFailure(value: unknown): boolean {
+  return /blockhash.{0,48}(invalid|not found|cannot be validated|can not be validated)|invalid.{0,48}blockhash/i.test(
+    walletErrorText(value),
+  );
+}
+
+function walletSigningDiagnostic(value: unknown): string | undefined {
+  let name: string | undefined;
+  let code: string | undefined;
+  let message: string | undefined;
+  if (value instanceof Error) {
+    name = value.name;
+    message = value.message;
+  } else if (isRecord(value)) {
+    if (typeof value.name === "string") name = value.name;
+    if (typeof value.code === "string" || typeof value.code === "number") code = String(value.code);
+    if (typeof value.message === "string") message = value.message;
+  }
+  const safeMessage = message
+    ?.replace(/\p{Cc}/gu, " ")
+    .replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, "[redacted address or key]")
+    .replace(/[0-9a-f]{64,}/gi, "[redacted data]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 140);
+  const parts = [name, code ? `code ${code}` : undefined, safeMessage].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+function walletSigningFailure(
+  error: unknown,
+  source: "brave-provider" | "wallet-standard",
+): Extract<WalletSubmissionResult, { status: "failed-before-wallet" }> {
+  const diagnostic = walletSigningDiagnostic(error);
+  const reason = isWalletBlockhashFailure(error)
+    ? "wallet-blockhash-invalid"
+    : isWalletSigningRejection(error)
+      ? "wallet-signing-rejected"
+      : "wallet-signing-failed";
+  return diagnostic
+    ? { status: "failed-before-wallet", reason, walletSource: source, diagnostic }
+    : { status: "failed-before-wallet", reason, walletSource: source };
 }
 
 function signerSetMatches(
@@ -248,6 +308,13 @@ export async function sendApprovedDeployment(options: {
   }
 
   if (options.walletFeature.signTransaction) {
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.userActivation &&
+      !navigator.userActivation.isActive
+    )
+      return { status: "blocked", code: "wallet_user_gesture_missing" };
+
     let serialized: Uint8Array;
     try {
       const signingTransaction = Transaction.from(
@@ -281,17 +348,22 @@ export async function sendApprovedDeployment(options: {
         transaction: serialized,
         options: { preflightCommitment: "confirmed" },
       });
-    } catch {
-      return { status: "failed-before-wallet", reason: "wallet-signing-failed" };
+    } catch (error) {
+      return walletSigningFailure(error, options.walletFeature.source ?? "wallet-standard");
     }
 
     let signedBytes: Uint8Array | undefined;
     try {
       signedBytes = signedTransaction(await signingPromise);
-    } catch {
-      return { status: "failed-before-wallet", reason: "wallet-signing-failed" };
+    } catch (error) {
+      return walletSigningFailure(error, options.walletFeature.source ?? "wallet-standard");
     }
-    if (!signedBytes) return { status: "failed-before-wallet", reason: "wallet-signing-failed" };
+    if (!signedBytes)
+      return {
+        status: "failed-before-wallet",
+        reason: "wallet-returned-invalid-transaction",
+        walletSource: options.walletFeature.source ?? "wallet-standard",
+      };
 
     let signed: Transaction;
     let signature: string;

@@ -36,6 +36,18 @@ export function Harden({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const revision = useRef(0);
+  const blockers = [
+    !confirmed ? "Review and confirm the weights and replay assumptions." : null,
+    findings.length === 0
+      ? "This audit has no selectable findings. Run an attack or script that produces supported numeric evidence, then rerun the audit."
+      : selected.length === 0
+        ? "Select at least one audit finding above."
+        : null,
+    !auditRequest.trades?.length
+      ? "Replay at least one deterministic trade before hardening."
+      : null,
+    auditRequest.attacks.length === 0 ? "Run at least one attack scenario before hardening." : null,
+  ].filter((reason): reason is string => reason !== null);
   function invalidate() {
     revision.current++;
     setResult(null);
@@ -147,21 +159,17 @@ export function Harden({
         />
         I reviewed the numeric weights and paired replay assumptions.
       </label>
-      {!auditRequest.trades && (
-        <p className="muted">Run a deterministic script before hardening.</p>
-      )}
-      {auditRequest.attacks.length === 0 && (
-        <p className="muted">Run at least one attack before hardening.</p>
+      {blockers.length > 0 && !busy && (
+        <ul id="hardening-blockers" className="hardening-blockers" aria-live="polite">
+          {blockers.map((reason) => (
+            <li key={reason}>{reason}</li>
+          ))}
+        </ul>
       )}
       <button
         type="button"
-        disabled={
-          busy ||
-          !confirmed ||
-          selected.length === 0 ||
-          !auditRequest.trades ||
-          auditRequest.attacks.length === 0
-        }
+        disabled={busy || blockers.length > 0}
+        aria-describedby={blockers.length > 0 ? "hardening-blockers" : undefined}
         onClick={() => void run()}
       >
         {busy ? "Generating & replaying…" : "Harden selected findings"}
