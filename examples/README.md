@@ -33,9 +33,11 @@ pnpm tymba attack examples/demo-attack-request.json --scenario sniper
 pnpm tymba attack examples/demo-attack-request.json --scenario sniper --json
 ```
 
-The attack request includes the market intent, solver weights, simulation configuration, agent distribution, attacker funding, and timing parameters. Its optional `preScenarioBuyQuoteAtomic` performs the same explicit deterministic warm-up before each selected attack, useful when a scenario needs pre-existing base holders. The report includes that assumption, labels outcomes as modeled, and keeps the curve marked as a non-deployable draft while full DBC configuration and token-supply validation remain pending.
+The attack request includes the market intent, solver weights, simulation configuration, agent distribution, attacker funding, and timing parameters. Its optional `preScenarioBuyQuoteAtomic` performs the same explicit deterministic warm-up before each selected attack, useful when a scenario needs pre-existing base holders. The report includes that assumption, labels outcomes as modeled, and keeps the curve marked as a non-deployable draft because full DBC configuration and token-supply validation run in the separate Deploy step, not in the attack command.
 
 The tracked attack request has fixtures for all five scenarios. Select `sniper` or `opening-sniper`, `whale-entry`, `pump-and-dump`, `sell-cascade`, or `fee-schedule-timing` with `--scenario`; each run deterministically compiles to the same curve-draft ID from the unchanged request.
+
+`demo-canonical-sniper.json` is the opening-sniper configuration for the canonical studio demo (seed 73). It is identical to `demo-attack-request.json`'s `attacks["opening-sniper"]` except that its single retail buyer places $5,000 buys (matching the replay script's first trade) instead of $10 buys, and its id is `demo-canonical-opening-sniper`. Paste it into the studio's **Attack configuration JSON** field on draft 2. The larger demand is an explicit modeling assumption: with $10 buys the sniper loses money against this curve. The README's "Canonical seeded demo" section lists the expected values, which `src/web-api/canonical-demo.test.ts` pins.
 
 Run the fixed, deterministic simulator fixture with:
 

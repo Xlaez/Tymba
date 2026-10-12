@@ -22,7 +22,7 @@ test("Devnet and wallet preflight is explicit, read-only, and clears readiness o
       json: {
         jsonrpc: "2.0",
         id: payload.id,
-        result: "GH7ome3EiwEr7tu9JuTh2dpYWBJK3z69Xm1ZE3MEE6JC",
+        result: "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
       },
     });
   });
@@ -87,16 +87,19 @@ test("Devnet and wallet preflight is explicit, read-only, and clears readiness o
   await page.getByRole("button", { name: "Create curve drafts" }).click();
   const panel = page.locator("section[aria-labelledby='deployment-access-title']");
   await expect(panel).toBeVisible();
-  await expect(panel).toContainText("does not build, sign, or send a transaction");
+  await expect(panel).toContainText("Candidate preparation is offline");
+  await expect(panel).toContainText(
+    "No transaction is sent during candidate preparation or simulation",
+  );
   await panel.getByRole("button", { name: "Check Devnet connection" }).click();
   await expect(
     panel.getByText("The fixed Solana RPC endpoint identified itself as Devnet."),
   ).toBeVisible();
   await expect.poll(() => genesisRequests).toBe(1);
-  await panel.getByLabel("Wallet").selectOption({ label: "Tymba test wallet" });
+  await panel.getByLabel("Wallet", { exact: true }).selectOption({ label: "Tymba test wallet" });
   await panel.getByRole("button", { name: "Connect wallet" }).click();
   await expect(panel).toContainText("Connected public account validated for Devnet");
-  await expect(panel).toContainText("Network and wallet checks passed");
+  await expect(panel).toContainText("Devnet and wallet checks passed");
   expect(
     await page.evaluate(
       () => (window as Window & { __tymbaConnectPrompt?: boolean }).__tymbaConnectPrompt,
@@ -114,5 +117,7 @@ test("Devnet and wallet preflight is explicit, read-only, and clears readiness o
     state.__tymbaWalletChange?.({ accounts: [] });
   });
   await expect(panel).toContainText("The wallet account or network changed");
-  await expect(panel).toContainText("Preflight incomplete");
+  await expect(panel).toContainText(
+    "Connect a compatible wallet to enable transaction preparation",
+  );
 });

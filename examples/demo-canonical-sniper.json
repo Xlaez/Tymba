@@ -1,0 +1,43 @@
+{
+  "id": "demo-canonical-opening-sniper",
+  "randomSeed": "73",
+  "requestedIterations": "1",
+  "supportingAgentDistribution": {
+    "counts": {
+      "retail-buyer": "1",
+      "whale": "0",
+      "sniper": "0",
+      "momentum-trader": "0",
+      "profit-taker": "0",
+      "panic-seller": "0",
+      "random-trader": "0"
+    },
+    "templates": {
+      "retail-buyer": {
+        "id": "retail",
+        "archetype": "retail-buyer",
+        "initialQuoteBalanceAtomic": "20000000000",
+        "initialBaseBalanceAtomic": "0",
+        "initialBaseCostBasisQuoteAtomic": "0",
+        "minimumBuyQuoteAtomic": "5000000000",
+        "maximumBuyQuoteAtomic": "5000000000",
+        "buyProbabilityBps": "10000",
+        "sellProbabilityBps": "0",
+        "sellShareBps": "10000"
+      }
+    }
+  },
+  "attacker": {
+    "id": "sniper",
+    "initialQuoteBalanceAtomic": "200000000",
+    "buyQuoteAtomic": "100000000",
+    "holdTicks": "1",
+    "minimumOtherBuyerBaseAtomic": "1",
+    "exitShareBps": "10000"
+  },
+  "ticks": {
+    "tickCount": "4",
+    "slotsPerTick": "1",
+    "secondsPerTick": "1"
+  }
+}

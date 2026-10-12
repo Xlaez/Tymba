@@ -360,38 +360,40 @@ Goal: deploy only an approved, validated configuration and verify the on-chain r
 
 Goal: package one compelling, truthful, reproducible end-to-end demonstration.
 
+Phase 9 run (2026-10-12): feature work frozen; fresh clone with `pnpm install --frozen-lockfile`. Only demo-breaking or correctness issues were changed: three stale unit tests and two stale browser checks (wallet sender inclusion-slot mocking and `reviewedMessageHex`, builder evidence string, Devnet genesis mock, Deploy-panel copy and selectors), a mobile horizontal-overflow bug from 64-hex digests in the Deploy panel (`src/web/styles.css`), a truncated pool-authority address in `examples/devnet-deployment-record.demo-v1.json`, and four inaccurate user-facing strings (compile failure and issue text saying validation is "not implemented", the attack note, and the workspace notice saying no wallet signing or deployment exists). The README section "Canonical seeded demo" holds the exact flow, expected values, and the verified/unverified split.
+
 ### Demo profile
 
-- [ ] Prepare the deterministic profile from the spec: 1B supply, ~$200k start FDV, ~$2M migration FDV, ~$150k quote target, ~25% distribution, balanced profile, high sniper resistance.
-- [ ] Store the demo input and all seeds in version-controlled fixtures.
-- [ ] Confirm the candidate is legal and all metrics are reproducible.
-- [ ] Confirm at least one attack exposes a meaningful risk.
-- [ ] Confirm hardening produces a measurable before/after improvement.
-- [ ] Confirm the demo report clearly labels modeled versus on-chain values.
+- [x] Prepare the deterministic profile from the spec: 1B supply, ~$200k start FDV, ~$2M migration FDV, ~$150k quote target, ~25% distribution, balanced profile, high sniper resistance (`examples/demo-compile-request.json`; studio draft 2 measures exactly 150,000 USDC and 2,500 bps distribution).
+- [x] Store the demo input and all seeds in version-controlled fixtures (`examples/demo-compile-request.json`, `examples/demo-attack-request.json` seeds 73/81/117/91, new `examples/demo-canonical-sniper.json` seed 73; the hardening replay seed 73 derives from the sniper fixture in `src/web/Harden.tsx`).
+- [x] Confirm the candidate is legal and all metrics are reproducible. Legal: pinned-SDK curve and complete config validation, accepted and finalized on Devnet, 57/57 fields matched, deployed curve identical to studio draft 2. Reproducible: all 14 CLI invocations byte-identical on repeat; `src/web-api/canonical-demo.test.ts` asserts repeat equality.
+- [x] Confirm at least one attack exposes a meaningful risk. Pump-and-dump (seed 117): attacker +422.367006 USDC on $10,000, late-buyer loss 22.26%, drawdown 23.97% (MODERATE). Opening sniper (seed 73, $5,000 retail demand fixture): +14.234231 USDC, 711 bps (MODERATE). Caveat: with the shipped $10-demand sniper fixture the sniper loses $0.47 (LOW); the canonical result depends on the stated demand assumption.
+- [x] Confirm hardening produces a measurable before/after improvement. Sniper return 711 → 580 bps, max trade impact 2,852 → 2,359 bps, targets unchanged; pinned in `canonical-demo.test.ts` and `canonical-demo.spec.ts`. Caveats: tested inputs only, severity stays MODERATE, the hardened draft is not deployed, and the default $10-demand fixture shows zero change.
+- [x] Confirm the demo report clearly labels modeled versus on-chain values (downloaded report: `evidenceClassification: "modeled"`, `verificationStatus: "unverified"`, per-finding "not an on-chain result"; on-chain values live only in the separate deployment record; no secret-bearing fields).
 
 ### Release quality
 
-- [ ] Run formatting, linting, type checking, unit tests, property tests, parity tests, and relevant integration tests.
-- [ ] Run the complete seeded demo from a clean environment.
-- [ ] Test failure paths: invalid intent, conflicting constraints, solver failure, simulation failure, SDK mismatch, wallet rejection, and transaction failure.
-- [ ] Review user-facing copy against the economic-claims restrictions in `spec.md`.
-- [ ] Review dependency versions and environment configuration.
-- [ ] Update `README.md` with setup, commands, architecture, limitations, and verification status.
-- [ ] Record known limitations and deferred work.
+- [x] Run formatting, linting, type checking, unit tests, property tests, parity tests, and relevant integration tests (fresh clone: `pnpm check` 352 tests in 74 files, `pnpm coverage` 72.02% statements, `pnpm build`, `pnpm test:web` 21/21 on the dev server and 21/21 on the built server; live read-only Devnet re-check of the deployed accounts). No Devnet write or migration integration run was performed.
+- [x] Run the complete seeded demo from a clean environment (fresh clone, frozen-lockfile install, studio flow via browser, CLI commands run twice). The port was changed to 5199 in the throwaway clone because 5173 was held by a running dev server; no other difference.
+- [x] Test failure paths: invalid intent (`validate` field errors), conflicting constraints (migration not above start, solver `partial`), solver/compile blocked, simulation failure (partial fills, `iteration_failed`), SDK validation rejection (`complete-config-validation`, `solver-sdk-validation`), wallet rejection, wallet preflight and blockhash rejection, on-chain failure, invalid wallet signature, and unavailable confirmation (`src/meteora/deployment-wallet-sender.test.ts` gained four tests).
+- [x] Review user-facing copy against the economic-claims restrictions in `spec.md` (pattern scan of `src/web`, `src/cli`, `src/web-api`; four inaccurate strings corrected; not an exhaustive human copy edit).
+- [x] Review dependency versions and environment configuration. Direct dependencies are pinned except `@types/node`; no environment variables are required. `pnpm audit --prod` reports 7 transitive advisories (3 high) through the pinned SDK/web3.js; deliberately not upgraded, recorded in the README.
+- [x] Update `README.md` with setup, commands, architecture, limitations, and verification status.
+- [x] Record known limitations and deferred work (README "Known limitations"): liquidity-`1` segments, whole-curve verification trade driving the HIGH mid-curve finding, sell-cascade fixture on draft 2, no AI parsing, migration never exercised, 0.01 SOL budget undercount, transitive advisories.
 
 ### MVP release gate
 
-- [ ] Structured intent works.
-- [ ] Optional natural-language intent is validated into structured constraints.
-- [ ] Legal DBC candidate generation works.
-- [ ] Deterministic simulator is verified.
-- [ ] Curve visualization and explanations work.
-- [ ] Five or more adversarial scenarios work.
-- [ ] Economic audit works.
-- [ ] Before/after hardening comparison works.
-- [ ] Shareable/exportable report works.
-- [ ] Devnet deployment and post-deployment verification work.
-- [ ] A reviewer can understand the value proposition within 60–90 seconds.
+- [x] Structured intent works.
+- [ ] Optional natural-language intent is validated into structured constraints. Not met: the prose box is an uninterpreted design note and no AI interpretation exists.
+- [x] Legal DBC candidate generation works (13 SDK-curve-validated drafts, complete config validation and Devnet acceptance for draft 2; drafts can contain liquidity-`1` segments).
+- [x] Deterministic simulator is verified.
+- [x] Curve visualization and explanations work.
+- [ ] Five or more adversarial scenarios work. Partly proven: all five complete from the CLI on draft #0, and four complete on the canonical draft 2 in the studio. The shipped sell-cascade fixture ends `partial` (`cascade_not_observed`) on draft 2 and was not retuned; fee-schedule timing needs the scheduled-fee configuration.
+- [x] Economic audit works.
+- [x] Before/after hardening comparison works (canonical fixture; see caveats above).
+- [x] Shareable/exportable report works.
+- [x] Devnet deployment and post-deployment verification work for config and pool creation (57/57 fields; re-read live 2026-10-12). Migration, trading, and allocation behavior remain unverified, and the 0.01 SOL budget undercount is open.
+- [ ] A reviewer can understand the value proposition within 60–90 seconds. Requires a human review; not measurable by automated checks.
 
 ## Explicitly deferred after MVP
 

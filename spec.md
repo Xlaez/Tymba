@@ -3438,7 +3438,7 @@ Compile: BLOCKED
 Deployable candidates: 0
 Curve drafts: 13
 Solver status: satisfied
-Failure: complete DBC configuration and token-supply validation are not implemented.
+Failure: complete DBC configuration and token-supply validation run in the separate Deploy step.
 ```
 
 The curve-draft count and economic metrics depend on the explicit compile request. A blocked result must not be presented as compiled or deployable.

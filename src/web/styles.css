@@ -878,3 +878,6 @@ footer {
 .hardening-blockers li + li {
   margin-top: 4px;
 }
+code {
+  overflow-wrap: anywhere;
+}

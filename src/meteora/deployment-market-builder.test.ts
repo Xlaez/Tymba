@@ -144,7 +144,7 @@ describe("pinned Meteora config and pool transaction builder", () => {
       feePayer: PAYER.toBase58(),
       additionalSignerAddresses: [CONFIG.toBase58(), BASE_MINT.toBase58()],
       additionalLamportDebits: [0n],
-      rentLayoutEvidence: "current-source-unverified-on-devnet",
+      rentLayoutEvidence: "current-source-verified-devnet-runtime-unconfirmed",
       lockedLiquidityBpsAtDayOne: 1_000,
     });
     expect(result.transaction.feePayer?.equals(PAYER)).toBe(true);

@@ -82,7 +82,19 @@ async function createPreparedFlow() {
     context: { slot: 501 },
     value: { err: null },
   } as never);
-  return { transaction, preview, approval: decision.approval, readiness, connection };
+  vi.spyOn(connection, "getSignatureStatuses").mockResolvedValue({
+    context: { slot: 502 },
+    value: [{ slot: 501, confirmations: null, err: null, confirmationStatus: "finalized" }],
+  } as never);
+  const reviewedMessageHex = Buffer.from(message.serialize()).toString("hex");
+  return {
+    transaction,
+    preview,
+    approval: decision.approval,
+    readiness,
+    connection,
+    reviewedMessageHex,
+  };
 }
 
 function walletAccount() {
@@ -208,5 +220,98 @@ describe("approved Devnet wallet submission", () => {
       status: "submitted-unconfirmed",
       reason: "confirmation-unavailable",
     });
+  });
+  it("reports a wallet rejection without treating the transaction as submitted", async () => {
+    const flow = await createPreparedFlow();
+    const result = await sendApprovedDeployment({
+      ...flow,
+      walletAccount: walletAccount(),
+      walletFeature: {
+        signAndSendTransaction: async () => {
+          throw Object.assign(new Error("User rejected the request."), { code: 4001 });
+        },
+      },
+      getConnectedWalletAddress: () => wallet.publicKey.toBase58(),
+      additionalSigners: [configSigner],
+    });
+
+    expect(result).toMatchObject({
+      status: "failed-before-wallet",
+      reason: "wallet-signing-rejected",
+    });
+    expect(flow.connection.confirmTransaction).not.toHaveBeenCalled();
+  });
+
+  it("reports wallet preflight simulation and blockhash failures as rejected submissions", async () => {
+    const simulation = await createPreparedFlow();
+    const simulationResult = await sendApprovedDeployment({
+      ...simulation,
+      walletAccount: walletAccount(),
+      walletFeature: {
+        signAndSendTransaction: async () => {
+          throw Object.assign(new Error("Transaction simulation failed"), { code: -32002 });
+        },
+      },
+      getConnectedWalletAddress: () => wallet.publicKey.toBase58(),
+      additionalSigners: [configSigner],
+    });
+    const blockhash = await createPreparedFlow();
+    const blockhashResult = await sendApprovedDeployment({
+      ...blockhash,
+      walletAccount: walletAccount(),
+      walletFeature: {
+        signAndSendTransaction: async () => {
+          throw new Error("Blockhash not found");
+        },
+      },
+      getConnectedWalletAddress: () => wallet.publicKey.toBase58(),
+      additionalSigners: [configSigner],
+    });
+
+    expect(simulationResult).toMatchObject({
+      status: "preflight-rejected",
+      reason: "simulation-failed",
+    });
+    expect(blockhashResult).toMatchObject({
+      status: "preflight-rejected",
+      reason: "blockhash-not-found",
+    });
+  });
+
+  it("retains the signature when the transaction lands but fails on chain", async () => {
+    const flow = await createPreparedFlow();
+    vi.mocked(flow.connection.confirmTransaction).mockResolvedValue({
+      context: { slot: 501 },
+      value: { err: { InstructionError: [0, { Custom: 1 }] } },
+    } as never);
+    const result = await sendApprovedDeployment({
+      ...flow,
+      walletAccount: walletAccount(),
+      walletFeature: {
+        signAndSendTransaction: async () => [{ signature: new Uint8Array(64).fill(7) }],
+      },
+      getConnectedWalletAddress: () => wallet.publicKey.toBase58(),
+      additionalSigners: [configSigner],
+    });
+
+    expect(result).toMatchObject({ status: "confirmed-failed", slot: 501 });
+    expect(result.status === "confirmed-failed" && result.signature.length).toBeGreaterThan(80);
+  });
+
+  it("does not claim a submission when the wallet returns no valid signature", async () => {
+    const flow = await createPreparedFlow();
+    const result = await sendApprovedDeployment({
+      ...flow,
+      walletAccount: walletAccount(),
+      walletFeature: { signAndSendTransaction: async () => [{ signature: new Uint8Array(3) }] },
+      getConnectedWalletAddress: () => wallet.publicKey.toBase58(),
+      additionalSigners: [configSigner],
+    });
+
+    expect(result).toEqual({
+      status: "outcome-unknown",
+      reason: "wallet-returned-invalid-signature",
+    });
+    expect(flow.connection.confirmTransaction).not.toHaveBeenCalled();
   });
 });

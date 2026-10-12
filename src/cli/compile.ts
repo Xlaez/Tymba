@@ -180,14 +180,14 @@ export function compileDocument(
     failure: {
       code: "full_configuration_validation_pending",
       message:
-        "Curve drafts passed deterministic simulation and pinned-SDK curve validation, but complete DBC configuration and token-supply validation are not implemented. No deployable candidate or protocol configuration was emitted.",
+        "Curve drafts passed deterministic simulation and pinned-SDK curve validation, but complete DBC configuration and token-supply validation run in the separate Deploy step with a connected deployer wallet. This compile step emits no deployable candidate or protocol configuration.",
     },
     issues: [
       {
         path: "$.compile",
         code: "full_configuration_validation_pending",
         message:
-          "Complete the pinned SDK config-parameter and supply validators before promoting any draft to a deployable candidate.",
+          "Run the Deploy step's pinned SDK config-parameter and supply validators before promoting any draft to a deployable candidate.",
       },
     ],
   };

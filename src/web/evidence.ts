@@ -3,7 +3,7 @@ import type { WebHardeningResponse } from "../web-api/contracts.js";
 export const evidenceNotices = {
   workspace: {
     title: "Local models, not live markets",
-    text: "These results do not guarantee fundraising, future prices, or manipulation resistance. No wallet signing, deployment, or on-chain verification is available in this workspace.",
+    text: "These results do not guarantee fundraising, future prices, or manipulation resistance. Modeled results are not on-chain results: only the separate, explicitly approved Devnet deploy step signs a transaction, and no trade or migration has been observed on-chain.",
   },
   review: {
     title: "Valid input, not a promised outcome",

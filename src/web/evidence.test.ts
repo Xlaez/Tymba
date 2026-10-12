@@ -4,7 +4,7 @@ import { comparisonAssessment, evidenceNotices } from "./evidence.js";
 
 describe("stage-specific evidence limits", () => {
   it.each([
-    ["workspace", "No wallet signing, deployment, or on-chain verification"],
+    ["workspace", "Modeled results are not on-chain results"],
     ["review", "does not prove economic feasibility"],
     ["compile", "does not mean buyers will arrive or capital will be raised"],
     ["curve", "not time or expected demand"],

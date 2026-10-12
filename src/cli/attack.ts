@@ -305,7 +305,7 @@ export function runAttackDocument(
     },
     evidence: {
       classification: "modeled",
-      note: "Attack ran against a solver-generated curve draft. Full DBC configuration and token-supply validation are pending; this is not a deployable candidate or a prediction of user behavior.",
+      note: "Attack ran against a solver-generated curve draft. Full DBC configuration and token-supply validation were not run in this step; this is not a deployable candidate or a prediction of user behavior.",
     },
     assumptions,
     result: attackResult,
