@@ -34,12 +34,12 @@ export type WalletSubmissionResult =
   | Readonly<{
       status: "confirmed";
       signature: string;
-      slot: number;
+      slot?: number;
     }>
   | Readonly<{
       status: "confirmed-failed";
       signature: string;
-      slot: number;
+      slot?: number;
     }>
   | Readonly<{
       status: "submitted-unconfirmed";
@@ -52,7 +52,8 @@ export type WalletSubmissionResult =
     }>
   | Readonly<{
       status: "preflight-rejected";
-      reason: "blockhash-not-found";
+      reason: "blockhash-not-found" | "simulation-failed";
+      diagnostic?: string;
     }>
   | Readonly<{
       status: "failed-before-wallet";
@@ -117,6 +118,41 @@ function walletSignature(value: unknown): string | undefined {
   return encodeBase58(value[0].signature);
 }
 
+async function transactionInclusionSlot(
+  connection: Connection,
+  signature: string,
+): Promise<number | undefined> {
+  try {
+    const statuses = await connection.getSignatureStatuses([signature], {
+      searchTransactionHistory: true,
+    });
+    const slot = statuses.value[0]?.slot;
+    if (slot !== undefined && Number.isSafeInteger(slot) && slot >= 0) return slot;
+  } catch {}
+
+  try {
+    const transaction = await connection.getTransaction(signature, {
+      commitment: "confirmed",
+      maxSupportedTransactionVersion: 0,
+    });
+    const slot = transaction?.slot;
+    if (slot !== undefined && Number.isSafeInteger(slot) && slot >= 0) return slot;
+  } catch {}
+
+  return undefined;
+}
+
+async function confirmationResult(
+  connection: Connection,
+  signature: string,
+  error: unknown,
+): Promise<WalletSubmissionResult> {
+  const slot = await transactionInclusionSlot(connection, signature);
+  return error === null
+    ? { status: "confirmed", signature, ...(slot === undefined ? {} : { slot }) }
+    : { status: "confirmed-failed", signature, ...(slot === undefined ? {} : { slot }) };
+}
+
 function signedTransaction(value: unknown): Uint8Array | undefined {
   if (
     !Array.isArray(value) ||
@@ -137,9 +173,22 @@ function hex(bytes: Uint8Array): string {
 }
 
 function walletErrorText(value: unknown, depth = 0): string {
-  if (depth > 3) return "";
+  if (depth > 4) return "";
   if (typeof value === "string") return value;
-  if (value instanceof Error) return `${value.message} ${walletErrorText(value.cause, depth + 1)}`;
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value))
+    return value
+      .slice(0, 8)
+      .map((entry) => walletErrorText(entry, depth + 1))
+      .filter(Boolean)
+      .join(" ");
+  if (value instanceof Error) {
+    const error = value as Error & Record<string, unknown>;
+    return ["message", "code", "data", "cause", "err", "logs"]
+      .map((key) => walletErrorText(error[key], depth + 1))
+      .filter(Boolean)
+      .join(" ");
+  }
   if (!isRecord(value)) return "";
   return ["message", "code", "data", "cause", "err", "logs"]
     .map((key) => walletErrorText(value[key], depth + 1))
@@ -147,8 +196,19 @@ function walletErrorText(value: unknown, depth = 0): string {
     .join(" ");
 }
 
-function isBlockhashPreflightFailure(value: unknown): boolean {
-  return /blockhash(?: not found|notfound)/i.test(walletErrorText(value));
+function walletPreflightFailureReason(
+  value: unknown,
+): "blockhash-not-found" | "simulation-failed" | undefined {
+  const message = walletErrorText(value);
+  if (
+    /blockhash.{0,80}(?:not found|notfound|invalid|cannot be validated|can not be validated)|(?:invalid|cannot be validated|can not be validated).{0,80}blockhash/i.test(
+      message,
+    )
+  )
+    return "blockhash-not-found";
+  if (/-32002/.test(message) && /transaction simulation failed|simulation failed/i.test(message))
+    return "simulation-failed";
+  return undefined;
 }
 
 function isWalletSigningRejection(value: unknown): boolean {
@@ -166,25 +226,25 @@ function isWalletBlockhashFailure(value: unknown): boolean {
 
 function walletSigningDiagnostic(value: unknown): string | undefined {
   let name: string | undefined;
-  let code: string | undefined;
-  let message: string | undefined;
   if (value instanceof Error) {
     name = value.name;
-    message = value.message;
   } else if (isRecord(value)) {
     if (typeof value.name === "string") name = value.name;
-    if (typeof value.code === "string" || typeof value.code === "number") code = String(value.code);
-    if (typeof value.message === "string") message = value.message;
   }
-  const safeMessage = message
+  const safeMessage = walletErrorText(value)
     ?.replace(/\p{Cc}/gu, " ")
     .replace(/[1-9A-HJ-NP-Za-km-z]{32,}/g, "[redacted address or key]")
     .replace(/[0-9a-f]{64,}/gi, "[redacted data]")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 140);
-  const parts = [name, code ? `code ${code}` : undefined, safeMessage].filter(Boolean);
+    .slice(0, 220);
+  const parts = [name && name !== "Error" ? name : undefined, safeMessage].filter(Boolean);
   return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+function walletDiagnosticProperty(value: unknown): { diagnostic?: string } {
+  const diagnostic = walletSigningDiagnostic(value);
+  return diagnostic ? { diagnostic } : {};
 }
 
 function walletSigningFailure(
@@ -307,6 +367,96 @@ export async function sendApprovedDeployment(options: {
     return { status: "blocked", code: "invalid_additional_signers" };
   }
 
+  if (options.walletFeature.signAndSendTransaction && !options.walletFeature.signTransaction) {
+    if (typeof options.readiness === "function")
+      return { status: "blocked", code: "approval_rpc_failed" };
+    if (
+      options.readiness.status !== "ready" ||
+      options.readiness.broadcast !== "not-invoked" ||
+      options.readiness.walletAddress !== walletAddress ||
+      options.readiness.messageDigestHex !== options.preview.messageDigestHex
+    )
+      return { status: "blocked", code: "message_mismatch" };
+    if (
+      typeof navigator !== "undefined" &&
+      navigator.userActivation &&
+      !navigator.userActivation.isActive
+    )
+      return { status: "blocked", code: "wallet_user_gesture_missing" };
+
+    let serialized: Uint8Array;
+    try {
+      const signingTransaction = new Transaction({
+        feePayer: new PublicKey(options.preview.feePayer),
+        recentBlockhash: options.preview.blockhash,
+      }).add(...options.transaction.instructions);
+      if (options.additionalSigners.length > 0)
+        signingTransaction.partialSign(...options.additionalSigners);
+      if (
+        !options.reviewedMessageHex ||
+        hex(signingTransaction.serializeMessage()) !== options.reviewedMessageHex
+      )
+        return { status: "blocked", code: "message_mismatch" };
+      serialized = signingTransaction.serialize({
+        requireAllSignatures: false,
+        verifySignatures: true,
+      });
+    } catch {
+      return { status: "failed-before-wallet", reason: "runtime-signer-failed" };
+    }
+
+    let sendPromise: Promise<readonly unknown[]>;
+    try {
+      sendPromise = options.walletFeature.signAndSendTransaction({
+        account: options.walletAccount,
+        chain: SOLANA_DEVNET_CHAIN,
+        transaction: serialized,
+        options: {
+          commitment: "confirmed",
+          preflightCommitment: "confirmed",
+          skipPreflight: false,
+        },
+      });
+    } catch (error) {
+      return walletSigningFailure(error, options.walletFeature.source ?? "wallet-standard");
+    }
+
+    let signature: string | undefined;
+    try {
+      signature = walletSignature(await sendPromise);
+    } catch (error) {
+      const preflightFailure = walletPreflightFailureReason(error);
+      if (preflightFailure)
+        return {
+          status: "preflight-rejected",
+          reason: preflightFailure,
+          ...walletDiagnosticProperty(error),
+        };
+      if (isWalletSigningRejection(error))
+        return walletSigningFailure(error, options.walletFeature.source ?? "wallet-standard");
+      return { status: "outcome-unknown", reason: "wallet-rejected-or-failed" };
+    }
+    if (!signature)
+      return {
+        status: "outcome-unknown",
+        reason: "wallet-returned-invalid-signature",
+      };
+
+    try {
+      const confirmation = await options.connection.confirmTransaction(
+        {
+          signature,
+          blockhash: options.preview.blockhash,
+          lastValidBlockHeight: options.preview.lastValidBlockHeight,
+        },
+        "confirmed",
+      );
+      return await confirmationResult(options.connection, signature, confirmation.value.err);
+    } catch {
+      return { status: "submitted-unconfirmed", signature, reason: "confirmation-unavailable" };
+    }
+  }
+
   if (options.walletFeature.signTransaction) {
     if (
       typeof navigator !== "undefined" &&
@@ -414,8 +564,13 @@ export async function sendApprovedDeployment(options: {
               reason: "wallet-returned-invalid-signature" as const,
             };
         } catch (error) {
-          return isBlockhashPreflightFailure(error)
-            ? { status: "preflight-rejected" as const, reason: "blockhash-not-found" as const }
+          const preflightFailure = walletPreflightFailureReason(error);
+          return preflightFailure
+            ? {
+                status: "preflight-rejected" as const,
+                reason: preflightFailure,
+                ...walletDiagnosticProperty(error),
+              }
             : { status: "outcome-unknown" as const, reason: "wallet-rejected-or-failed" as const };
         }
         try {
@@ -427,16 +582,7 @@ export async function sendApprovedDeployment(options: {
             },
             "confirmed",
           );
-          const slot = confirmation.context.slot;
-          if (!Number.isSafeInteger(slot) || slot < 0)
-            return {
-              status: "submitted-unconfirmed" as const,
-              signature,
-              reason: "confirmation-unavailable" as const,
-            };
-          return confirmation.value.err === null
-            ? { status: "confirmed" as const, signature, slot }
-            : { status: "confirmed-failed" as const, signature, slot };
+          return await confirmationResult(options.connection, signature, confirmation.value.err);
         } catch {
           return {
             status: "submitted-unconfirmed" as const,
@@ -499,10 +645,12 @@ export async function sendApprovedDeployment(options: {
             },
           });
         } catch (error) {
-          if (isBlockhashPreflightFailure(error))
+          const preflightFailure = walletPreflightFailureReason(error);
+          if (preflightFailure)
             return {
               status: "preflight-rejected" as const,
-              reason: "blockhash-not-found" as const,
+              reason: preflightFailure,
+              ...walletDiagnosticProperty(error),
             };
           return {
             status: "outcome-unknown" as const,
@@ -525,17 +673,7 @@ export async function sendApprovedDeployment(options: {
           },
           "confirmed",
         );
-        const slot = confirmation.context.slot;
-        if (!Number.isSafeInteger(slot) || slot < 0) {
-          return {
-            status: "submitted-unconfirmed" as const,
-            signature,
-            reason: "confirmation-unavailable" as const,
-          };
-        }
-        return confirmation.value.err === null
-          ? { status: "confirmed" as const, signature, slot }
-          : { status: "confirmed-failed" as const, signature, slot };
+        return await confirmationResult(options.connection, signature, confirmation.value.err);
       } catch {
         return {
           status: "submitted-unconfirmed" as const,

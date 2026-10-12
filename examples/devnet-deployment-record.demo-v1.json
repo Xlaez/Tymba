@@ -1,0 +1,255 @@
+{
+  "recordType": "tymba.devnet-deployment-record",
+  "schemaVersion": 1,
+  "recordId": "demo-v1-5myg5xbcY4iEYuD7TBf8PuRcfxJzHhkBZz7MKGsrYbfhcX9p62DHYbCf6Aj5aS5xixmUSHc4ZeoMKDjymJdKAPWR",
+  "profileId": "demo-v1",
+  "network": {
+    "name": "Solana Devnet",
+    "endpoint": "https://api.devnet.solana.com",
+    "genesisHash": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+  },
+  "status": "confirmed",
+  "approval": {
+    "status": "approved",
+    "wallet": "Phantom",
+    "approverAddress": "8HvxrKCaZo3CK6q1Nb1qPGnx7vzmPqTQEupNFNoLpRn1",
+    "approvalDigestRetained": false,
+    "preparationTimestampRetained": false
+  },
+  "candidate": {
+    "fixture": "examples/demo-migration.json",
+    "compileRequest": "examples/demo-compile-request.json",
+    "id": "curve-quote-69618739077-80381260922-1",
+    "status": "satisfied",
+    "engineVersion": "0.1.0",
+    "algorithmVersion": "initial-linear-grid-atomic-allocation-v1",
+    "meteoraSdkVersion": "1.5.13",
+    "resolvedCandidateSha256": "fc3ad1141d39902df5909d514729a706efa8d3783fa427af7d46193a400fe566",
+    "randomSeed": null,
+    "seedPolicy": "deterministic compile; no randomized run was used for deployment",
+    "intent": {
+      "baseSymbol": "MKT",
+      "baseDecimals": 9,
+      "baseSupplyTokens": "1000000000",
+      "quoteSymbol": "USDC",
+      "quoteDecimals": 6,
+      "startFdvUsd": "200000",
+      "migrationFdvUsd": "2000000",
+      "quoteToMigrationUsd": "150000",
+      "baseDistributionTargetPct": "25",
+      "launchProfile": "balanced",
+      "sniperResistance": "high",
+      "maxSegments": 3
+    },
+    "deployedParameters": {
+      "quoteMint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "migrationOption": "damm-v2",
+      "migratedPoolCollectFeeMode": "compounding",
+      "migrationFeeBps": 1000,
+      "creatorMigrationFeeShareBps": 5000,
+      "migrationQuoteThresholdAtomic": "150000000000",
+      "migrationBaseThresholdAtomic": "67500000000000003",
+      "migrationSqrtPriceQ64x64": "26087635650665564",
+      "sqrtStartPriceQ64x64": "8249634742471189",
+      "fixedSupplyAtomic": "1000000000000000000",
+      "curve": [
+        {
+          "sqrtPriceQ64x64": "16499269484942379",
+          "liquidity": "2871645843083279137381663757054216"
+        },
+        {
+          "sqrtPriceQ64x64": "21826481935697146",
+          "liquidity": "5134453708290229753219281928666881"
+        },
+        {
+          "sqrtPriceQ64x64": "26087635650665564",
+          "liquidity": "1"
+        }
+      ],
+      "liquidityAllocationPct": {
+        "creator": {
+          "unlocked": 20,
+          "permanentlyLocked": 10,
+          "vesting": 20
+        },
+        "partner": {
+          "unlocked": 20,
+          "permanentlyLocked": 10,
+          "vesting": 20
+        }
+      },
+      "liquidityVesting": {
+        "durationSeconds": 86400,
+        "periodCount": 1,
+        "cliffDurationSeconds": 0
+      },
+      "migratedPoolFeeBps": 100,
+      "migratedPoolCompoundingFeeBps": 500
+    }
+  },
+  "transaction": {
+    "signature": "5myg5xbcY4iEYuD7TBf8PuRcfxJzHhkBZz7MKGsrYbfhcX9p62DHYbCf6Aj5aS5xixmUSHc4ZeoMKDjymJdKAPWR",
+    "explorerUrl": "https://explorer.solana.com/tx/5myg5xbcY4iEYuD7TBf8PuRcfxJzHhkBZz7MKGsrYbfhcX9p62DHYbCf6Aj5aS5xixmUSHc4ZeoMKDjymJdKAPWR?cluster=devnet",
+    "confirmationStatus": "finalized",
+    "error": null,
+    "inclusionSlot": 510319004,
+    "blockTimeUtc": "2026-10-12T16:08:28Z",
+    "feeLamports": "15000",
+    "instructions": [
+      "Meteora DBC create_config",
+      "Meteora DBC initialize_virtual_pool_with_spl_token"
+    ],
+    "signerPublicKeys": [
+      "8HvxrKCaZo3CK6q1Nb1qPGnx7vzmPqTQEupNFNoLpRn1",
+      "9iYEWiGmsKaMBb1zEJxHYAJj6AY3VThSpDQkWPoTcSG7",
+      "4TfEUmumxCbTP3sspSLrR6g6UTpEL5tpunNcJZjACGsY"
+    ],
+    "studioReportedConfirmationContextSlot": 510319005,
+    "slotNote": "The studio version used for this transaction displayed confirmTransaction context.slot. The canonical transaction inclusion slot is 510319004. The sender now fetches the signature status or transaction slot before displaying an inclusion slot."
+  },
+  "addresses": {
+    "feePayerAndPoolCreator": "8HvxrKCaZo3CK6q1Nb1qPGnx7vzmPqTQEupNFNoLpRn1",
+    "feeClaimerAndLeftoverReceiver": "8HvxrKCaZo3CK6q1Nb1qPGnx7vzmPqTQEupNFNoLpRn1",
+    "config": "9iYEWiGmsKaMBb1zEJxHYAJj6AY3VThSpDQkWPoTcSG7",
+    "baseMint": "4TfEUmumxCbTP3sspSLrR6g6UTpEL5tpunNcJZjACGsY",
+    "pool": "8RVi5JkRQhUpgAbBkKgk54dgG4jbU3Wi9p7xrSRs26o4",
+    "baseVault": "2vJQMnCeXVF1zRqAuQ3DxX1S1sk3JoPeXNrxtM37W8qG",
+    "quoteVault": "5PeGUBsRwHabwjmTywRifbNMvdrnEzgAKHqJ1xW2hPEV",
+    "tokenMetadata": "3JmVYmXwEHFf2mUarTaeTQUaXDDG6wSCSVrmHhTnY2mr",
+    "quoteMint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+    "poolAuthority": "FhVo3mqL8PW5pH5U2CN4XE33DokiyZnUwuGpH2hmHLu",
+    "dbcProgram": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN",
+    "splTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "metaplexTokenMetadataProgram": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+  },
+  "metadata": {
+    "name": "Tymba Devnet Demo",
+    "symbol": "MKT",
+    "uri": "https://xlaez.github.io/Tymba/devnet-token-metadata.json",
+    "baseMintDecimals": 9,
+    "baseMintSupplyAtomic": "1000000000000000000",
+    "mintAuthority": null,
+    "freezeAuthority": null,
+    "metadataAuthority": "8HvxrKCaZo3CK6q1Nb1qPGnx7vzmPqTQEupNFNoLpRn1"
+  },
+  "stateFetch": {
+    "commitment": "finalized",
+    "checkedAtSlot": 510328651,
+    "accountDataLengthsBytes": {
+      "config": 1048,
+      "pool": 424,
+      "baseMint": 82,
+      "baseVault": 165,
+      "quoteVault": 165,
+      "tokenMetadata": 607
+    }
+  },
+  "deployedState": {
+    "config": {
+      "quoteMintDecimals": 6,
+      "baseTokenDecimals": 9,
+      "migrationQuoteThresholdAtomic": "150000000000",
+      "migrationBaseThresholdAtomic": "67500000000000003",
+      "migrationSqrtPriceQ64x64": "26087635650665564",
+      "fixedSupplyFlag": true,
+      "preMigrationSupplyAtomic": "1000000000000000000",
+      "postMigrationSupplyAtomic": "1000000000000000000",
+      "migrationFeeBps": 1000,
+      "creatorMigrationFeeShareBps": 5000,
+      "migratedPoolCollectFeeMode": "compounding",
+      "curveMatchesCompiledCandidateExactly": true
+    },
+    "pool": {
+      "config": "9iYEWiGmsKaMBb1zEJxHYAJj6AY3VThSpDQkWPoTcSG7",
+      "creator": "8HvxrKCaZo3CK6q1Nb1qPGnx7vzmPqTQEupNFNoLpRn1",
+      "baseMint": "4TfEUmumxCbTP3sspSLrR6g6UTpEL5tpunNcJZjACGsY",
+      "quoteMint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "baseVault": "2vJQMnCeXVF1zRqAuQ3DxX1S1sk3JoPeXNrxtM37W8qG",
+      "quoteVault": "5PeGUBsRwHabwjmTywRifbNMvdrnEzgAKHqJ1xW2hPEV",
+      "activationPointSlot": 510319004,
+      "baseReserveAtomic": "1000000000000000000",
+      "quoteReserveAtomic": "0",
+      "isMigrated": false,
+      "migrationProgressBps": 0
+    }
+  },
+  "verification": {
+    "status": "verified",
+    "scope": "fetched on-chain config and pool state compared with the compiled demo-v1 candidate",
+    "comparisonPolicy": {
+      "protocolValuesRequireExactEquality": true,
+      "maximumPermittedToleranceAtomicUnits": 1,
+      "toleranceAppliedAtomicUnits": 0
+    },
+    "onchainCandidateComparison": {
+      "matchedFields": 57,
+      "comparedFields": 57,
+      "mismatches": [],
+      "migrationBaseThresholdDerivation": {
+        "mode": "damm-v2-compounding",
+        "quoteAmountAfterMigrationFeeAtomic": "135000000000",
+        "formula": "ceil((quoteAmountAtomic * 2^128) / migrationSqrtPriceQ64x64^2)",
+        "computedAtomic": "67500000000000003",
+        "fetchedAtomic": "67500000000000003",
+        "genericSdkHelperComparison": {
+          "computedAtomic": "67500011113127036",
+          "reasonNotUsed": "The pinned SDK helper accepts migration option but not migrated collect-fee mode; it uses the concentrated-liquidity path, while demo-v1 selects the program's compounding path."
+        }
+      }
+    },
+    "executionCostComparison": {
+      "status": "mismatch",
+      "previewAccountRentLamports": "16555720",
+      "previewNetworkFeeLamports": "15000",
+      "previewTotalRequiredLamports": "16570720",
+      "fetchedAccountBalancesLamports": {
+        "config": "5974080",
+        "baseMint": "1066800",
+        "pool": "2804160",
+        "baseVault": "1488440",
+        "quoteVault": "1488440",
+        "tokenMetadata": "13733800"
+      },
+      "actualAccountFundingLamports": "26555720",
+      "actualNetworkFeeLamports": "15000",
+      "actualPayerDebitLamports": "26570720",
+      "payerBalanceBeforeLamports": "2498124427",
+      "payerBalanceAfterLamports": "2471553707",
+      "unestimatedDebitLamports": "10000000",
+      "unestimatedDebitLocation": "tokenMetadata",
+      "note": "The metadata account holds 10000000 lamports above the runtime rent quote for its 607-byte data length. The reason is not established here; update the budget model only after verifying the account-creation funding rule."
+    },
+    "migrationRuntime": {
+      "configurationAndThresholdDerivedFromCurve": true,
+      "poolCurrentlyAtMigrationThreshold": false,
+      "swapToThresholdObserved": false,
+      "dammV2MigrationObserved": false,
+      "allocationAndAccountingExecutionVerified": false
+    }
+  },
+  "findings": [
+    {
+      "id": "metadata-account-funding-exceeds-preview",
+      "severity": "moderate",
+      "summary": "The actual metadata account funding exceeded the previewed rent by 10000000 lamports (0.01 SOL)."
+    },
+    {
+      "id": "migration-execution-not-observed",
+      "severity": "informational",
+      "summary": "Config and pool state are verified, but no swap, graduation, DAMM v2 migration, vesting release, or allocation settlement was exercised."
+    }
+  ],
+  "limitations": [
+    "The web studio does not automatically persist deployment records; this checked-in artifact records this deployment only.",
+    "Wallet approval was explicit, but its message digest and preparation timestamp were not retained in the archival record.",
+    "The preview undercounted metadata account funding by 10000000 lamports; the cost estimate is not verified even though the transaction succeeded.",
+    "The pool currently has zero quote reserve and has not reached its migration threshold. No trade or migration transaction was sent as part of this deployment.",
+    "Migration keeper behavior, DAMM v2 account creation, vesting release, liquidity allocation, surplus, and fixed-supply cleanup remain unverified on chain."
+  ],
+  "evidenceLinks": {
+    "transaction": "https://explorer.solana.com/tx/5myg5xbcY4iEYuD7TBf8PuRcfxJzHhkBZz7MKGsrYbfhcX9p62DHYbCf6Aj5aS5xixmUSHc4ZeoMKDjymJdKAPWR?cluster=devnet",
+    "metadata": "https://xlaez.github.io/Tymba/devnet-token-metadata.json",
+    "programCreateConfigSource": "https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/instructions/partner/create_config/process_create_config.rs",
+    "programMigrationHandlerSource": "https://github.com/MeteoraAg/dynamic-bonding-curve/blob/main/programs/dynamic-bonding-curve/src/migration_handler/compounding_liquidity.rs"
+  }
+}

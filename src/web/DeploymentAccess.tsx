@@ -1,13 +1,17 @@
 import {
+  SolanaSignAndSendTransaction,
+  type SolanaSignAndSendTransactionInput,
   SolanaSignTransaction,
-  type SolanaSignTransactionInput,
 } from "@solana/wallet-standard-features";
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { getWallets } from "@wallet-standard/app";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { braveWalletSigningFeature } from "../meteora/brave-wallet-signing.js";
 import { DEMO_V1_METADATA_URI } from "../meteora/demo-v1-metadata.js";
-import { recordExplicitDeploymentDecision } from "../meteora/deployment-approval-gate.js";
+import {
+  type DeploymentApproval,
+  executeAfterExplicitDeploymentApproval,
+  recordExplicitDeploymentDecision,
+} from "../meteora/deployment-approval-gate.js";
 import {
   assessDeploymentBudget,
   type DeploymentBudgetResult,
@@ -31,7 +35,7 @@ import {
 import { postJson } from "./api.js";
 
 type RegisteredWallet = ReturnType<ReturnType<typeof getWallets>["get"]>[number];
-type WalletAccount = SolanaSignTransactionInput["account"];
+type WalletAccount = SolanaSignAndSendTransactionInput["account"];
 type WalletConnectFeature = {
   connect: (input: { silent: false }) => Promise<{ accounts: readonly unknown[] }>;
 };
@@ -44,14 +48,23 @@ function getWalletSigningFeature(
   account: WalletAccount | null,
 ): WalletSendFeature | null {
   if (!wallet || !account) return null;
-  if (wallet.name.toLowerCase().includes("brave") && typeof window !== "undefined") {
-    const braveProvider = (window as Window & { braveSolana?: unknown }).braveSolana;
-    const directFeature = braveWalletSigningFeature(braveProvider, account.address);
-    if (directFeature) return directFeature;
-  }
-  const standardFeature = wallet.features[SolanaSignTransaction];
-  return isRecord(standardFeature) && typeof standardFeature.signTransaction === "function"
-    ? (standardFeature as unknown as WalletSendFeature)
+  if (!Array.isArray(account.features)) return null;
+  const signFeature = wallet.features[SolanaSignTransaction];
+  if (
+    account.features.includes(SolanaSignTransaction) &&
+    isRecord(signFeature) &&
+    Array.isArray(signFeature.supportedTransactionVersions) &&
+    signFeature.supportedTransactionVersions.includes("legacy") &&
+    typeof signFeature.signTransaction === "function"
+  )
+    return signFeature as unknown as WalletSendFeature;
+  const sendFeature = wallet.features[SolanaSignAndSendTransaction];
+  return account.features.includes(SolanaSignAndSendTransaction) &&
+    isRecord(sendFeature) &&
+    Array.isArray(sendFeature.supportedTransactionVersions) &&
+    sendFeature.supportedTransactionVersions.includes("legacy") &&
+    typeof sendFeature.signAndSendTransaction === "function"
+    ? (sendFeature as unknown as WalletSendFeature)
     : null;
 }
 type DeploymentCandidateResult =
@@ -86,6 +99,12 @@ type SendReady = {
   messageDigestHex: string;
   broadcast: "not-invoked";
 };
+type ApprovalEvidence = Readonly<{
+  approval: DeploymentApproval;
+  readiness: SendReady;
+  walletAddress: string;
+  messageDigestHex: string;
+}>;
 type DeploymentReadinessResult =
   | SendReady
   | {
@@ -169,15 +188,19 @@ function blockhashFreshnessText(freshness: BlockhashFreshness | null): string {
 function resultText(result: WalletSubmissionResult): string {
   switch (result.status) {
     case "confirmed":
-      return `Transaction confirmed in slot ${result.slot}.`;
+      return result.slot === undefined
+        ? "Transaction confirmed; the inclusion slot could not be fetched."
+        : `Transaction confirmed in slot ${result.slot}.`;
     case "confirmed-failed":
-      return `The transaction landed and failed in slot ${result.slot}. Do not retry without reviewing the signature.`;
+      return result.slot === undefined
+        ? "The transaction landed and failed; the inclusion slot could not be fetched. Do not retry without reviewing the signature."
+        : `The transaction landed and failed in slot ${result.slot}. Do not retry without reviewing the signature.`;
     case "submitted-unconfirmed":
       return "A signature was returned, but confirmation could not be fetched. Do not retry; check the signature on Explorer.";
     case "outcome-unknown":
       return "The wallet outcome is unknown. Do not retry until the wallet and Devnet history have been checked.";
     case "preflight-rejected":
-      return "Brave Wallet could not find the prepared blockhash during preflight simulation. Prepare and simulate a fresh transaction, then review it again.";
+      return `Preflight simulation rejected this transaction${result.reason === "blockhash-not-found" ? " because its blockhash was not found" : ""}. Nothing was broadcast.${result.diagnostic ? ` Wallet detail: ${result.diagnostic}.` : ""} Prepare and simulate a fresh transaction, then review it again.`;
     case "failed-before-wallet": {
       const walletName =
         result.walletSource === "brave-provider"
@@ -222,19 +245,27 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
   const [prepared, setPrepared] = useState<PreparedTransaction | null>(null);
   const [blockhashFreshness, setBlockhashFreshness] = useState<BlockhashFreshness | null>(null);
   const [approved, setApproved] = useState(false);
+  const [approvalCheck, setApprovalCheck] = useState<"idle" | "checking" | "ready" | "blocked">(
+    "idle",
+  );
+  const [approvalEvidence, setApprovalEvidence] = useState<ApprovalEvidence | null>(null);
   const [submission, setSubmission] = useState<WalletSubmissionResult | null>(null);
   const [submissionHistoryChecked, setSubmissionHistoryChecked] = useState(false);
   const connectedAddress = useRef<string | null>(null);
   const connectedAccount = useRef<WalletAccount | null>(null);
   const runtimeSigners = useRef<readonly Keypair[] | null>(null);
   const connection = useRef<Connection | null>(null);
+  const approvalGeneration = useRef(0);
   const preview = prepared?.simulation.status === "complete" ? prepared.simulation.preview : null;
 
   const clearPrepared = useCallback(() => {
+    approvalGeneration.current += 1;
     for (const signer of runtimeSigners.current ?? []) signer.secretKey.fill(0);
     runtimeSigners.current = null;
     setPrepared(null);
     setApproved(false);
+    setApprovalCheck("idle");
+    setApprovalEvidence(null);
     setDeploymentError("");
   }, []);
 
@@ -557,76 +588,149 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
     }
   }
 
+  async function handleApprovalChange(checked: boolean) {
+    const generation = ++approvalGeneration.current;
+    setApproved(checked);
+    setApprovalEvidence(null);
+    setDeploymentError("");
+    if (!checked) {
+      setApprovalCheck("idle");
+      return;
+    }
+
+    setApprovalCheck("checking");
+    if (!prepared || !preview || !walletAddress || !connection.current) {
+      setApprovalCheck("blocked");
+      setDeploymentError("Prepare the transaction and connect the Devnet wallet before approval.");
+      return;
+    }
+    if (
+      blockhashFreshness?.status !== "valid" ||
+      (blockhashFreshness.remainingBlockHeights ?? 0) <= BLOCKHASH_SEND_SAFETY_MARGIN
+    ) {
+      setApprovalCheck("blocked");
+      setDeploymentError(
+        "Tymba cannot confirm that this transaction has enough blockhash lifetime. Prepare a fresh transaction.",
+      );
+      return;
+    }
+    const simulation = prepared.simulation;
+    const budget = prepared.budget;
+    const accountNow = connectedAccount.current;
+    const rpc = connection.current;
+    if (
+      !accessReady ||
+      !accountNow ||
+      accountNow.address !== walletAddress ||
+      simulation.status !== "complete" ||
+      simulation.simulation.status !== "succeeded" ||
+      budget.status !== "sufficient"
+    ) {
+      setApprovalCheck("blocked");
+      setDeploymentError(
+        "The wallet, Devnet check, balance estimate, or simulation is no longer ready. Prepare and review again.",
+      );
+      return;
+    }
+
+    const decision = recordExplicitDeploymentDecision({
+      decision: "approve",
+      preview: simulation.preview,
+      approverAddress: walletAddress,
+      recordedAtSeconds: BigInt(Math.floor(Date.now() / 1000)),
+    });
+    if (decision.status !== "recorded") {
+      setApprovalCheck("blocked");
+      setDeploymentError("The exact transaction could not be approved by the deployment gate.");
+      return;
+    }
+
+    try {
+      setSendProgress("Checking the approved transaction and Devnet blockhash…");
+      const readiness = await postJson<DeploymentReadinessResult>("/api/deployment/readiness", {
+        candidate: prepared.candidate,
+        connectedWalletPublicKey: walletAddress,
+        transactionMessageDigestHex: simulation.preview.messageDigestHex,
+        preflight: { status: "sufficient", messageDigestHex: budget.evidence.messageDigestHex },
+        simulation: { status: "succeeded", messageDigestHex: simulation.preview.messageDigestHex },
+        approval: {
+          status: decision.approval.status,
+          approverAddress: decision.approval.approverAddress,
+          messageDigestHex: decision.approval.messageDigestHex,
+        },
+      });
+      if (readiness.status !== "ready") throw new Error(formatReadinessBlock(readiness));
+      const gate = await executeAfterExplicitDeploymentApproval({
+        approval: decision.approval,
+        transaction: prepared.transaction,
+        preview: simulation.preview,
+        connection: rpc,
+        getConnectedWalletAddress: () => connectedAddress.current,
+        execute: () => readiness,
+      });
+      if (gate.status !== "executed")
+        throw new Error(
+          gate.status === "blocked"
+            ? `The Devnet approval gate blocked this transaction (${gate.code}). Prepare and review it again.`
+            : "Tymba could not recheck Devnet identity and blockhash lifetime. Try the approval check again.",
+        );
+      if (generation !== approvalGeneration.current || connectedAddress.current !== walletAddress)
+        return;
+      setApprovalEvidence({
+        approval: decision.approval,
+        readiness: gate.value,
+        walletAddress,
+        messageDigestHex: simulation.preview.messageDigestHex,
+      });
+      setApprovalCheck("ready");
+    } catch (failure) {
+      if (generation !== approvalGeneration.current) return;
+      setApprovalCheck("blocked");
+      setDeploymentError(
+        failure instanceof Error ? failure.message : "Devnet approval checks failed.",
+      );
+    }
+  }
+
   async function approveAndSend() {
     const blockedReason = getSendBlockedReason();
     if (blockedReason) {
       setDeploymentError(blockedReason);
       return;
     }
-    if (!prepared || !walletAccount || !walletAddress || !connection.current) {
+    if (!prepared || !preview || !walletAccount || !walletAddress || !connection.current) {
       setDeploymentError(
         "The prepared transaction or connected wallet is no longer available. Prepare it again.",
       );
       return;
     }
-    const simulation = prepared.simulation;
-    const budget = prepared.budget;
+    const evidence = approvalEvidence;
+    const accountNow = connectedAccount.current;
+    const signingFeature = getWalletSigningFeature(selectedWallet, accountNow);
     if (
-      simulation.status !== "complete" ||
-      simulation.simulation.status !== "succeeded" ||
-      budget.status !== "sufficient"
+      !evidence ||
+      evidence.walletAddress !== walletAddress ||
+      evidence.messageDigestHex !== preview.messageDigestHex ||
+      evidence.readiness.messageDigestHex !== preview.messageDigestHex ||
+      !accountNow ||
+      !signingFeature
     ) {
-      setDeploymentError(
-        "The transaction no longer has a successful simulation and sufficient balance. Prepare it again.",
-      );
+      setDeploymentError("Approval evidence changed. Review and approve this transaction again.");
       return;
     }
+    const simulation = prepared.simulation;
+    if (simulation.status !== "complete" || simulation.simulation.status !== "succeeded") {
+      setDeploymentError("A successful simulation is required before sending.");
+      return;
+    }
+
     setDeploymentBusy(true);
     setDeploymentError("");
-    setSendProgress("Recording your approval…");
+    setSendProgress("Opening the connected wallet for its final approval…");
     try {
-      const decision = recordExplicitDeploymentDecision({
-        decision: "approve",
-        preview: simulation.preview,
-        approverAddress: walletAddress,
-        recordedAtSeconds: BigInt(Math.floor(Date.now() / 1000)),
-      });
-      if (decision.status !== "recorded")
-        throw new Error("The explicit approval record was invalid.");
-      const accountNow = connectedAccount.current;
-      const signingFeature = getWalletSigningFeature(selectedWallet, accountNow);
-      if (!signingFeature || !accountNow)
-        throw new Error("The connected wallet does not expose transaction signing.");
-      setSendProgress(
-        signingFeature.source === "brave-provider"
-          ? "Request sent to Brave Wallet. Waiting for final signing approval…"
-          : "Request sent to the connected wallet. Waiting for final signing approval…",
-      );
-      const result = await sendApprovedDeployment({
-        approval: decision.approval,
-        readiness: async () => {
-          setSendProgress("Wallet signed. Rechecking Devnet before submission…");
-          const readiness = await postJson<DeploymentReadinessResult>("/api/deployment/readiness", {
-            candidate: prepared.candidate,
-            connectedWalletPublicKey: walletAddress,
-            transactionMessageDigestHex: simulation.preview.messageDigestHex,
-            preflight: {
-              status: "sufficient",
-              messageDigestHex: budget.evidence.messageDigestHex,
-            },
-            simulation: {
-              status: "succeeded",
-              messageDigestHex: simulation.preview.messageDigestHex,
-            },
-            approval: {
-              status: decision.approval.status,
-              approverAddress: decision.approval.approverAddress,
-              messageDigestHex: decision.approval.messageDigestHex,
-            },
-          });
-          if (readiness.status !== "ready") throw new Error(formatReadinessBlock(readiness));
-          return readiness;
-        },
+      const sendPromise = sendApprovedDeployment({
+        approval: evidence.approval,
+        readiness: evidence.readiness,
         transaction: prepared.transaction,
         preview: simulation.preview,
         reviewedMessageHex: prepared.reviewedMessageHex,
@@ -636,6 +740,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
         walletFeature: signingFeature,
         additionalSigners: runtimeSigners.current ?? [],
       });
+      const result = await sendPromise;
       setSubmission(result);
       setSubmissionHistoryChecked(false);
       for (const signer of runtimeSigners.current ?? []) signer.secretKey.fill(0);
@@ -645,6 +750,8 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
       runtimeSigners.current = null;
       setPrepared(null);
       setApproved(false);
+      setApprovalCheck("idle");
+      setApprovalEvidence(null);
       setDeploymentError(
         failure instanceof Error ? failure.message : "Approved send could not proceed.",
       );
@@ -670,6 +777,17 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
     if (blockhashFreshness.status === "expiring")
       return `This transaction's blockhash is close to expiry (${blockhashFreshness.remainingBlockHeights ?? 0} block heights remain). Prepare and simulate a fresh transaction.`;
     if (!approved) return "Check the approval box before sending this transaction.";
+    if (approvalCheck === "checking")
+      return "Checking the approval, Devnet identity, and exact transaction before opening the wallet…";
+    if (approvalCheck !== "ready" || !approvalEvidence)
+      return "Approval checks did not pass. Uncheck and approve again, or prepare a fresh transaction.";
+    if (
+      approvalEvidence.walletAddress !== walletAddress ||
+      approvalEvidence.messageDigestHex !== preview.messageDigestHex ||
+      approvalEvidence.readiness.walletAddress !== walletAddress ||
+      approvalEvidence.readiness.messageDigestHex !== preview.messageDigestHex
+    )
+      return "Approval evidence no longer matches this wallet and transaction. Approve again.";
     if (
       prepared.simulation.status !== "complete" ||
       prepared.simulation.simulation.status !== "succeeded"
@@ -781,6 +899,13 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
         {walletAddress && (
           <p>
             Connected public address: <code>{walletAddress}</code>
+          </p>
+        )}
+        {walletAddress && walletAccount && selectedWallet && (
+          <p className="muted">
+            {getWalletSigningFeature(selectedWallet, connectedAccount.current)?.signTransaction
+              ? "Wallet route: it signs only; Tymba runs preflight and submits through the reviewed Devnet RPC."
+              : "Wallet route: it handles signing, preflight, and submission through its configured Devnet RPC."}
           </p>
         )}
         {!wallets.length && (
@@ -912,8 +1037,9 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
           <output className="muted">
             The metadata URL may stay the same; a blockhash error concerns this transaction's recent
             network hash. If Tymba reports it valid while Brave rejects it, the RPC views may differ
-            or the hash may age out before Brave checks it. Prepare and review a fresh transaction,
-            then approve promptly.
+            or the hash may age out before it is checked. When supported, Tymba asks the wallet to
+            sign only, then runs preflight and submits through the same Devnet RPC that supplied the
+            reviewed blockhash.
           </output>
           <h4>Instructions</h4>
           <ol className="deployment-instructions">
@@ -967,7 +1093,7 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
                 id="deployment-explicit-approval"
                 type="checkbox"
                 checked={approved}
-                onChange={(event) => setApproved(event.target.checked)}
+                onChange={(event) => void handleApprovalChange(event.target.checked)}
               />
               <span>
                 <strong>Approve this exact transaction</strong>
@@ -982,13 +1108,13 @@ export function DeploymentAccess(props: { compileRequest: unknown; candidateId: 
               disabled={getSendBlockedReason() !== null}
               aria-describedby="deployment-send-help"
             >
-              {deploymentBusy ? "Processing approval…" : "Approve and send on Devnet"}
+              {deploymentBusy ? "Waiting for wallet approval…" : "Open wallet and send on Devnet"}
             </button>
             <p className="muted deployment-send-help" id="deployment-send-help" aria-live="polite">
               {deploymentBusy
                 ? sendProgress || "Checking the approved transaction…"
                 : (getSendBlockedReason() ??
-                  "Click to record approval and open your connected wallet for signing. Nothing is sent until you approve it in the wallet.")}
+                  "Approval checks passed. Click to open your connected wallet and approve this exact transaction.")}
             </p>
           </div>
           <p className="muted">
