@@ -4,8 +4,9 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build",
   "outputDirectory": "dist/web",
+  "rewrites": [{ "source": "/api/:route(.*)", "destination": "/api/handler?route=:route" }],
   "functions": {
-    "api/[...path].js": {
+    "api/handler.js": {
       "maxDuration": 60,
       "memory": 1024,
       "includeFiles": "dist/**"
