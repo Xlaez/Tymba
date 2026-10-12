@@ -85,7 +85,22 @@ function requestProtocol(request: IncomingMessage): "http" | "https" {
   return first === "https" ? "https" : "http";
 }
 
+// Vercel's Node wrapper reads the whole body up front and exposes it as `request.body`; its replay
+// patch does not cover async iteration, so the stream cannot be read again there.
+function preparsedBody(request: IncomingMessage): unknown {
+  if (!("body" in request)) return undefined;
+  if (Number(request.headers["content-length"] ?? 0) > MAX_BODY_BYTES)
+    throw new HttpError(413, "Request exceeds the 64 KiB local workflow limit.");
+  try {
+    return (request as IncomingMessage & { body?: unknown }).body;
+  } catch {
+    throw new HttpError(400, "Request body must be valid JSON.");
+  }
+}
+
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
+  const preparsed = preparsedBody(request);
+  if (preparsed !== undefined) return preparsed;
   const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of request) {
