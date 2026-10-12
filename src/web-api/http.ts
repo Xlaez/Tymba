@@ -23,7 +23,7 @@ export async function handleWebApi(
   response.setHeader("X-Content-Type-Options", "nosniff");
   try {
     const origin = request.headers.origin;
-    if (origin && origin !== `http://${request.headers.host}`)
+    if (origin && origin !== `${requestProtocol(request)}://${request.headers.host}`)
       throw new HttpError(403, "Request origin is not allowed.");
     if (request.method !== "POST") throw new HttpError(405, "Use POST for workflow requests.");
     if (
@@ -75,6 +75,14 @@ export async function handleWebApi(
       }),
     );
   }
+}
+
+// Behind a TLS-terminating host (Vercel) the browser's Origin is https while the socket is plain.
+// A cross-site page cannot set this header, so the same-origin comparison stays meaningful.
+function requestProtocol(request: IncomingMessage): "http" | "https" {
+  const forwarded = request.headers["x-forwarded-proto"];
+  const first = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim();
+  return first === "https" ? "https" : "http";
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<unknown> {
